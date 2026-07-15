@@ -1,0 +1,10 @@
+{
+  "name": "polymarket-copy-trade-scout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static Polymarket wallet leaderboard for copy-trade scouting.",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "test": "node --check ./app.js"
+  }
+}
