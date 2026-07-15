@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymarket Copy Trade Scout</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Polymarket wallet intelligence</p>
+          <h1 id="page-title">Top trader copy-trade scout</h1>
+          <p class="lede">
+            Rank candidate wallets by win rate, trade volume, recent drawdown, and
+            risk flags before adding them to a copy-trading watchlist.
+          </p>
+        </div>
+        <div class="score-card" aria-label="Current scan settings">
+          <span>Scan window</span>
+          <strong>15d</strong>
+          <small>risk-adjusted ranking</small>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Trader filters">
+        <label>
+          Minimum win rate
+          <select id="win-rate-filter">
+            <option value="0">Any</option>
+            <option value="55">55%+</option>
+            <option value="60">60%+</option>
+            <option value="70">70%+</option>
+          </select>
+        </label>
+        <label>
+          Maximum risk
+          <select id="risk-filter">
+            <option value="ALL">Any</option>
+            <option value="LOW">Low only</option>
+            <option value="MEDIUM">Low + medium</option>
+          </select>
+        </label>
+        <label>
+          Minimum trades
+          <select id="trades-filter">
+            <option value="0">Any</option>
+            <option value="1000">1,000+</option>
+            <option value="2500">2,500+</option>
+            <option value="3500">3,500+</option>
+          </select>
+        </label>
+        <label class="search-label">
+          Search wallet or flag
+          <input id="search-filter" type="search" placeholder="0x842ac9, clean, susWR..." />
+        </label>
+      </section>
+
+      <section class="terminal-card" aria-labelledby="table-title">
+        <div class="terminal-header">
+          <div>
+            <h2 id="table-title">Top Polymarket wallets - Win Rate, Trades, Drawdown (15d)</h2>
+            <p id="table-summary">Showing top wallets sorted by copy score.</p>
+          </div>
+          <button id="reset-filters" type="button">Reset filters</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Wallet</th>
+                <th scope="col">Win Rate</th>
+                <th scope="col">Trades</th>
+                <th scope="col">Max DD</th>
+                <th scope="col">Risk</th>
+                <th scope="col">Flags</th>
+                <th scope="col">Copy Score</th>
+                <th scope="col">Watch</th>
+              </tr>
+            </thead>
+            <tbody id="wallet-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="insights-grid" aria-label="Copy-trading guidance">
+        <article>
+          <h3>Copy-trade checklist</h3>
+          <ul>
+            <li>Prefer 1,000+ trades so win rate is harder to fake.</li>
+            <li>Cap allocation when max drawdown is above 2.5.</li>
+            <li>Investigate positive-volatility and suspicious win-rate flags.</li>
+            <li>Review market categories before mirroring a wallet.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Flag legend</h3>
+          <dl>
+            <div>
+              <dt>clean</dt>
+              <dd>No obvious behavioral warning in the scan window.</dd>
+            </div>
+            <div>
+              <dt>posVol</dt>
+              <dd>Unusual positive volume; confirm liquidity and fill quality.</dd>
+            </div>
+            <div>
+              <dt>susWR</dt>
+              <dd>Very high win rate; check for low-risk scalps or stale markets.</dd>
+            </div>
+          </dl>
+        </article>
+        <article>
+          <h3>Next data hooks</h3>
+          <p>
+            Replace the sample wallet feed in <code>app.js</code> with live wallet
+            analytics, then persist watched wallets for automated alerts or copy
+            trade sizing.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
