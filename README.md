@@ -7,13 +7,37 @@ a calculated copy score.
 
 ## Run locally
 
-From the repository root:
+First change into the repository folder on your machine:
+
+```bash
+cd path/to/prizepicks
+```
+
+Then start the static site:
+
+```bash
+npm start
+```
+
+Then open <http://localhost:4173>.
+
+You can also run it without npm:
 
 ```bash
 python3 -m http.server 4173
 ```
 
-Then open <http://localhost:4173>.
+## Validate the JavaScript
+
+From the repository root:
+
+```bash
+npm test
+```
+
+`app.js` is loaded by `index.html` in the browser. If you run
+`node --check app.js` from another directory, Node will look for `app.js` in
+that directory, which causes errors like `Cannot find module '/Users/brian/app.js'`.
 
 ## What is included
 
