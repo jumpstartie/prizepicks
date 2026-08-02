@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrizePicks MLB Props Finder</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">PrizePicks MLB intelligence</p>
+          <h1 id="page-title">Today's best MLB player props</h1>
+          <p class="lede">
+            Rank the day's PrizePicks MLB board by model edge, matchup softness,
+            and recent form, then build a prop slip from the top over/under leans.
+          </p>
+        </div>
+        <div class="score-card" aria-label="Slate settings">
+          <span>Slate</span>
+          <strong>MLB</strong>
+          <small>value-ranked props</small>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Prop filters">
+        <label>
+          Stat type
+          <select id="stat-filter">
+            <option value="ALL">All stats</option>
+          </select>
+        </label>
+        <label>
+          Lean
+          <select id="lean-filter">
+            <option value="ALL">Over &amp; Under</option>
+            <option value="Over">Over only</option>
+            <option value="Under">Under only</option>
+          </select>
+        </label>
+        <label>
+          Minimum value score
+          <select id="score-filter">
+            <option value="0">Any</option>
+            <option value="50">50+ (Medium)</option>
+            <option value="70">70+ (High)</option>
+          </select>
+        </label>
+        <label class="search-label">
+          Search player, team, or stat
+          <input id="search-filter" type="search" placeholder="Judge, NYY, Strikeouts..." />
+        </label>
+      </section>
+
+      <div class="board">
+        <section class="terminal-card" aria-labelledby="table-title">
+          <div class="terminal-header">
+            <div>
+              <h2 id="table-title">MLB props - Line, Projection, Edge &amp; Value Score</h2>
+              <p id="table-summary">Showing props sorted by value score.</p>
+            </div>
+            <button id="reset-filters" type="button">Reset filters</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">#</th>
+                  <th scope="col">Player</th>
+                  <th scope="col">Stat</th>
+                  <th scope="col">Line</th>
+                  <th scope="col">Proj</th>
+                  <th scope="col">Edge</th>
+                  <th scope="col">Lean</th>
+                  <th scope="col">Conf</th>
+                  <th scope="col">Value</th>
+                  <th scope="col">Slip</th>
+                </tr>
+              </thead>
+              <tbody id="props-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="slip-card" aria-labelledby="slip-title">
+          <div class="slip-header">
+            <h2 id="slip-title">Prop slip <span id="slip-count" class="slip-badge">0</span></h2>
+            <button id="clear-slip" type="button">Clear</button>
+          </div>
+          <ul id="slip-list" class="slip-list"></ul>
+          <p class="slip-note">
+            Add 2-6 props to mirror a PrizePicks entry. Higher value scores mean
+            a larger model edge on that side of the line.
+          </p>
+        </aside>
+      </div>
+
+      <section class="insights-grid" aria-label="Prop research guidance">
+        <article>
+          <h3>How the value score works</h3>
+          <ul>
+            <li>Edge (projection vs. posted line) is the primary driver.</li>
+            <li>Softer opponent matchups add a bounded bonus.</li>
+            <li>Recent form (L10) agreeing with the lean adds confidence.</li>
+            <li>Scores of 70+ are High confidence, 50-69 Medium.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Slip discipline</h3>
+          <ul>
+            <li>Prefer High-confidence legs; each added leg raises variance.</li>
+            <li>Diversify across games so one rainout can't sink the slip.</li>
+            <li>Fade Unders on strikeout props against cold offenses.</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Connecting real data</h3>
+          <p>
+            The slate lives in <code>data.js</code> as the <code>MLB_PROPS</code>
+            array. Replace it with a live PrizePicks MLB projections feed to rank
+            the real board. See the README for details.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
