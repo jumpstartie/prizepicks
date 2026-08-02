@@ -1,0 +1,10 @@
+{
+  "name": "prizepicks-mlb-props-finder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static PrizePicks MLB player-prop finder that ranks the day's best over/under plays.",
+  "scripts": {
+    "start": "python3 -m http.server 4173",
+    "test": "node --check ./app.js && node --check ./data.js"
+  }
+}
