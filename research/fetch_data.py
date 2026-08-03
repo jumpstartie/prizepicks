@@ -45,16 +45,32 @@ def ts(iso: str) -> int:
 
 
 def fetch_markets(series: str, n: int):
-    out, cursor = [], ""
+    """Walk back in time. Cursor pagination on status=settled stops after a few
+    days, so when it runs dry we continue with max_close_ts windows."""
+    out, cursor, max_close = [], "", None
+    seen = set()
     while len(out) < n:
         url = f"{BASE}/markets?series_ticker={series}&status=settled&limit=100"
         if cursor:
             url += f"&cursor={cursor}"
+        elif max_close:
+            url += f"&max_close_ts={max_close}"
         d = get(url)
-        out.extend(d["markets"])
+        new = [m for m in d["markets"] if m["ticker"] not in seen]
+        for m in new:
+            seen.add(m["ticker"])
+        out.extend(new)
         cursor = d.get("cursor")
         if not cursor or not d["markets"]:
-            break
+            if not out:
+                break
+            oldest = min(ts(m["close_time"]) for m in out)
+            if max_close is not None and oldest >= max_close:
+                break  # no further progress
+            max_close = oldest
+            cursor = ""
+            if not new and not d["markets"]:
+                break
     return out[:n]
 
 

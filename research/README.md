@@ -2,8 +2,8 @@
 
 Empirical study of Kalshi's 15-minute crypto up/down markets (BTC, ETH, SOL,
 XRP, DOGE, ZEC, NEAR, HYPE, BNB) using the public market-data API. Sample:
-474 settled intervals per asset (~5 days, Jul 29 - Aug 3 2026), minute-level
-candles = ~4,266 markets / ~64k market-minutes.
+2,874 settled intervals per asset (31 days, Jul 4 - Aug 3 2026), minute-level
+candles = ~25,866 markets / ~388k market-minutes.
 
 ## Scripts
 
@@ -14,6 +14,7 @@ candles = ~4,266 markets / ~64k market-minutes.
 | `calibration.py` | settle rate vs contract price, bucketed by price x time remaining |
 | `strategies.py` | backtests: cross-asset lead-lag, momentum, near-expiry favorite (taker and maker execution, Kalshi fees) |
 | `consistency.py` | day-by-day / per-asset stability of the two surviving edges |
+| `daily_pnl.py` | 30-day daily P&L series, positive-day rate, drawdown, half-vs-half decay check |
 
 Run order: `fetch_data.py` first, then any of the analysis scripts.
 
@@ -35,19 +36,24 @@ Run order: `fetch_data.py` first, then any of the analysis scripts.
    taker and ~1c as maker. Divergence is genuine, not staleness.
 
 4. **The mirror of longshot bias is real: near-expiry favorites are cheap.**
-   Buying the 90-97c side in minutes 11-13 at mid (maker fill, no fee):
-   +1.2c/contract, 95.1% win rate, n=1670, ~2.3 sigma. Positive on 5 of 6
-   days and 7 of 9 assets — but NEGATIVE on BTC and DOGE, the most
-   bot-patrolled books. The edge lives in the alt books. As taker it is
-   -0.4c: crossing the spread destroys it.
+   Buying the 90-97c side in minutes 11-13 at mid (maker fill, no fee), over
+   the full 31 days: +0.71c/contract on ~314 trades/day, ~95% win rate,
+   positive on 24 of 31 days (77%), positive in both halves of the month
+   (edge did not decay to zero but weakened: +43.5 first half vs +25.6
+   second, in EV units per 1 contract/trade). Daily Sharpe ~0.43; worst
+   day -9.6 units; max drawdown 18.8 units (~8 average days). Per-asset EV
+   concentrates in BNB (+2.4c), SOL (+1.6c), XRP (+1.5c); BTC/ETH/NEAR are
+   ~zero and DOGE slightly negative. Excluding BTC+DOGE: +0.96c/contract,
+   daily Sharpe 0.53. As taker the strategy is negative: crossing the
+   spread destroys it.
 
 5. **Momentum-following as maker is marginally positive** (+1.0 to +1.6c per
-   contract, ~1.5-1.9 sigma). Weaker evidence than (4).
+   contract on the 5-day window, ~1.5-1.9 sigma). Weaker evidence than (4).
 
-6. **Small persistent bullish overpricing.** "Up" settled 49.4% overall, yet
-   yes-side calibration gaps were negative in nearly every bucket; always
-   buying NO at mid at minute 5 made +1.4c/contract, positive 5 of 6 days.
-   Retail buys "up", making "down" systematically ~1.5c cheap.
+6. **The bullish-overpricing fade was a regime artifact.** Buying NO at mid
+   made +1.4c/contract over Jul 29 - Aug 3 but exactly 0.0c over the full
+   31 days (55% positive days, huge variance). A lesson in why multi-week
+   validation matters before trading anything.
 
 ## Caveats
 
