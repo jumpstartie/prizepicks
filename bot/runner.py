@@ -29,8 +29,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
 from bot import sizing
 
-# Prefer the books where the 31-day EV was significantly positive.
-SERIES = os.environ.get("SERIES", "KXBNB15M,KXSOL15M,KXXRP15M").split(",")
+# Books with positive 31-day favorite-maker EV. BTC/DOGE omitted (flat/negative).
+SERIES = os.environ.get(
+    "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M"
+).split(",")
 START_EQUITY = float(os.environ.get("START_EQUITY", "20"))
 MODE = os.environ.get("MODE", "paper").lower()  # paper | live
 POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
@@ -38,8 +40,16 @@ PRICE_LO = float(os.environ.get("PRICE_LO", "0.90"))
 PRICE_HI = float(os.environ.get("PRICE_HI", "0.97"))
 # Exit if our side's mark falls this fraction below entry (0.20 = 20%)
 STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0.20"))
+# Do not stop-loss in the final N seconds — hold to settlement (favorites wick).
+STOP_DISABLE_SECS = int(os.environ.get("STOP_DISABLE_SECS", "60"))
 # Signal window: last N seconds before close
 WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "180"))
+# Require at least this much time left to enter (blocks last-second flip chases)
+MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "60"))
+# Require the favorite band on the same side for this many consecutive polls
+CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
+# Requotes after a post-only-cross rejection
+MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",
@@ -187,6 +197,61 @@ def append_trade_log(row: dict):
         f.write(json.dumps(row) + "\n")
 
 
+def _passive_reprice(side: str, entry: float) -> float | None:
+    """Step one cent more passive after a post-only cross."""
+    if side == "yes":
+        nxt = round(entry - 0.01, 2)
+    else:
+        # raising the YES ask by 1c lowers the NO entry by 1c
+        yes_ask = round(1.0 - entry, 2) + 0.01
+        nxt = round(1.0 - yes_ask, 2)
+    if PRICE_LO <= nxt < PRICE_HI:
+        return nxt
+    return None
+
+
+def place_live_maker(client: KalshiClient, ticker: str, side: str, entry: float,
+                     unit: float, close_ts: float) -> tuple[dict | None, str, float, Exception | None]:
+    """Place post-only maker order; on cross, refresh touch and requote."""
+    last_err: Exception | None = None
+    for attempt in range(MAX_REQUOTES):
+        book_side = "bid" if side == "yes" else "ask"
+        book_price = entry if side == "yes" else round(1.0 - entry, 4)
+        try:
+            resp = client.create_order(
+                ticker, book_side, unit, book_price, post_only=True,
+                expiration_ts=int(close_ts),
+            )
+            return resp, side, entry, None
+        except Exception as e:
+            last_err = e
+            err = str(e).lower()
+            if "post only cross" not in err and "post_only_cross" not in err:
+                return None, side, entry, e
+            try:
+                m = client.market(ticker)
+            except Exception as e2:
+                return None, side, entry, e2
+            mid = mid_of(m)
+            if mid is None:
+                return None, side, entry, e
+            sig = signal_side(m, mid)
+            if sig is None or sig[0] != side:
+                # band gone — step passive once from last entry as fallback
+                nxt = _passive_reprice(side, entry)
+            else:
+                nxt = sig[1]
+                # if touch unchanged, force one tick more passive
+                if nxt == entry:
+                    nxt = _passive_reprice(side, entry)
+            if nxt is None:
+                return None, side, entry, e
+            log(f"post-only cross on {ticker}, requote {attempt+1}/{MAX_REQUOTES} "
+                f"{side} {entry:.2f}->{nxt:.2f}")
+            entry = nxt
+    return None, side, entry, last_err
+
+
 def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if sizing.should_halt(st.equity, st.start_equity):
         log(f"HALTED equity ${st.equity:.2f} <= "
@@ -208,37 +273,39 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
     except (TypeError, ValueError):
         last_at = None
+    close_ts = parse_ts(m["close_time"])
     pos = Position(
         ticker=ticker, series=m.get("event_ticker", ticker.split("-")[0]),
         side=side, contracts=unit, entry=entry, cost=cost,
-        opened_ts=time.time(), close_ts=parse_ts(m["close_time"]),
+        opened_ts=time.time(), close_ts=close_ts,
         last_at_signal=last_at,
     )
 
     if st.mode == "live":
-        book_side = "bid" if side == "yes" else "ask"
-        book_price = entry if side == "yes" else round(1 - entry, 4)
-        try:
-            resp = client.create_order(
-                ticker, book_side, unit, book_price, post_only=True,
-                expiration_ts=int(pos.close_ts),
-            )
-            pos.order_id = resp.get("order_id", "")
-            pos.client_order_id = resp.get("client_order_id", "")
-            fill = float(resp.get("fill_count", "0") or 0)
-            if fill > 0:
-                pos.filled = True
-                pos.contracts = fill
-                pos.cost = entry * fill
-                st.cash -= pos.cost
-            log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
-                f"order_id={pos.order_id} fill={fill}")
-        except Exception as e:
-            log(f"LIVE order failed {ticker}: {e}")
+        resp, side, entry, err = place_live_maker(
+            client, ticker, side, entry, unit, close_ts
+        )
+        if resp is None:
+            log(f"LIVE order failed {ticker}: {err}")
             return
+        pos.side = side
+        pos.entry = entry
+        pos.cost = unit * entry
+        pos.order_id = resp.get("order_id", "")
+        pos.client_order_id = resp.get("client_order_id", "")
+        fill = float(resp.get("fill_count", "0") or 0)
+        book_side = "bid" if side == "yes" else "ask"
+        book_price = entry if side == "yes" else round(1.0 - entry, 4)
+        if fill > 0:
+            pos.filled = True
+            pos.contracts = fill
+            pos.cost = entry * fill
+            st.cash -= pos.cost
+        log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
+            f"order_id={pos.order_id} fill={fill}")
     else:
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
-            f"(mid signal, {int(pos.close_ts - time.time())}s to close)")
+            f"(mid signal, {int(close_ts - time.time())}s to close)")
 
     st.positions.append(pos)
     st.signaled.append(ticker)
@@ -431,8 +498,13 @@ def close_position_stop(client: KalshiClient, st: State, p: Position, m: dict, m
 
 
 def check_stops(client: KalshiClient, st: State, markets_by_ticker: dict):
+    now = time.time()
     for p in list(st.open_positions):
         if not p.filled or p.settled:
+            continue
+        # never stop after close (book marks go junk) or in the final minute
+        secs_left = p.close_ts - now
+        if secs_left <= STOP_DISABLE_SECS:
             continue
         m = markets_by_ticker.get(p.ticker)
         if not m:
@@ -551,9 +623,11 @@ def main():
             st.save()
         log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
     log(f"starting MODE={st.mode}  {sizing.describe(st.cash if st.mode == 'live' else st.start_equity)}")
-    log(f"series={SERIES}  window={WINDOW_SEC}s  price=[{PRICE_LO},{PRICE_HI})  "
-        f"stop_loss={100*STOP_LOSS_PCT:.0f}% under entry")
+    log(f"series={SERIES}  window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
+        f"confirm={CONFIRM_POLLS}  price=[{PRICE_LO},{PRICE_HI})  "
+        f"stop_loss={100*STOP_LOSS_PCT:.0f}% (disabled last {STOP_DISABLE_SECS}s)")
 
+    pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
     while RUNNING:
         try:
@@ -562,6 +636,7 @@ def main():
             settle_due(client, st)
             now = time.time()
             markets_by_ticker: dict[str, dict] = {}
+            seen_tickers: set[str] = set()
             for series in SERIES:
                 try:
                     markets = client.open_markets(series)
@@ -570,6 +645,7 @@ def main():
                     continue
                 for m in markets:
                     ticker = m["ticker"]
+                    seen_tickers.add(ticker)
                     close_ts = parse_ts(m["close_time"])
                     secs_left = close_ts - now
 
@@ -583,19 +659,44 @@ def main():
                         update_paper_fills(st, m)
 
                     if ticker in st.signaled:
+                        pending.pop(ticker, None)
                         continue
-                    if not (0 < secs_left <= WINDOW_SEC):
+                    if secs_left <= 0 or secs_left > WINDOW_SEC:
+                        pending.pop(ticker, None)
                         continue
+                    if secs_left < MIN_SECS_LEFT:
+                        pending.pop(ticker, None)
+                        continue
+
                     mid = mid_of(m)
                     if mid is None:
                         continue
                     sig = signal_side(m, mid)
                     if sig is None:
+                        pending.pop(ticker, None)
                         continue
                     side, entry = sig
-                    log(f"signal {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                    hit = pending.get(ticker)
+                    if hit is None or hit["side"] != side:
+                        pending[ticker] = {"side": side, "hits": 1, "entry": entry}
+                        log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                            f"(1/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
+                        continue
+                    hit["hits"] += 1
+                    hit["entry"] = entry
+                    if hit["hits"] < CONFIRM_POLLS:
+                        log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                            f"({hit['hits']}/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
+                        continue
+                    log(f"signal confirmed {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
                         f"({secs_left:.0f}s left)")
+                    pending.pop(ticker, None)
                     try_open(client, st, m, side, entry)
+
+            # drop pending for markets that disappeared
+            for t in list(pending):
+                if t not in seen_tickers:
+                    pending.pop(t, None)
 
             check_stops(client, st, markets_by_ticker)
 

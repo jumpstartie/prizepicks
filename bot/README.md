@@ -20,29 +20,21 @@ aggressive given edge uncertainty). Unit auto-resizes as equity changes.
 START_EQUITY=20 MODE=paper python3 bot/runner.py
 ```
 
-Watches BNB/SOL/XRP 15m markets by default. In the final 3 minutes, if either
-side is at 90–97¢, rests a simulated maker order at the touch. Settles against
-the real Kalshi result. State in `bot/state.json`, trade log in `bot/trades.jsonl`.
+Watches BNB/SOL/XRP/ZEC/HYPE 15m markets by default. In the final 3 minutes,
+if either side is at 90–97¢ for 2 consecutive polls with ≥60s left, rests a
+simulated maker order at the touch. Settles against the real Kalshi result.
+State in `bot/state.json`, trade log in `bot/trades.jsonl`.
 
-`PAPER_FILL=backtest` (recommended for the $20 test) fills on the next poll,
-matching the research mid-fill assumption. `PAPER_FILL=touch` (default if unset
-in code path — pass explicitly) only fills when a new trade prints at the
-touch or the book crosses you — much closer to live maker reality, and much
-sparser, especially on the NO side.
+`PAPER_FILL=backtest` fills on the next poll (research mid-fill assumption).
+`PAPER_FILL=touch` only fills when a new trade prints at the touch.
 
 ## Run live
 
-1. Create an API key at https://kalshi.com/account/profile
-2. Fund the account with $20
-3. Export credentials and start:
-
 ```bash
 export KALSHI_API_KEY_ID='...'
-export KALSHI_PRIVATE_KEY_PATH=/path/to/kalshi.key   # or KALSHI_PRIVATE_KEY='PEM...'
+export KALSHI_PRIVATE_KEY_PATH=/path/to/kalshi.key
 START_EQUITY=20 MODE=live python3 bot/runner.py
 ```
-
-Use `KALSHI_DEMO=1` against the demo environment first if you want.
 
 ## Config env vars
 
@@ -50,12 +42,24 @@ Use `KALSHI_DEMO=1` against the demo environment first if you want.
 |---|---|---|
 | `START_EQUITY` | `20` | starting bankroll for sizing / halt |
 | `MODE` | `paper` | `paper` or `live` |
-| `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M` | comma-separated series |
-| `WINDOW_SEC` | `180` | signal window before close |
+| `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M` | markets to trade |
+| `WINDOW_SEC` | `180` | earliest signal window before close |
+| `MIN_SECS_LEFT` | `60` | no new entries inside final minute |
+| `CONFIRM_POLLS` | `2` | same-side band must hold this many polls |
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
 | `STOP_LOSS_PCT` | `0.20` | exit if mark falls this fraction under entry |
+| `STOP_DISABLE_SECS` | `60` | disable stop in final N seconds (hold to settle) |
+| `MAX_REQUOTES` | `3` | post-only-cross requote attempts |
 | `POLL_SEC` | `5` | market poll interval |
+
+### Why not BTC?
+
+31-day favorite-maker EV was ~0 on BTC and slightly negative on DOGE — those
+books are too efficient. Edge concentrates in thinner alt books (BNB/SOL/XRP;
+ZEC/HYPE added as secondary). Override `SERIES` only if you accept flat EV.
 
 ### Stop-loss
 
-After a fill, if our side's mark drops **20% below entry** (e.g. bought at 95¢ → stop at 76¢), the bot exits immediately with an IOC reduce-only order instead of holding to settlement.
+After a fill, if our side's mark drops **20% below entry** (e.g. 95¢ → 76¢),
+exit via IOC reduce-only — **unless** fewer than 60s remain, in which case
+hold to settlement (favorites wick hard near expiry).
