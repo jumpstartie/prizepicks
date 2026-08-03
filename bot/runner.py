@@ -876,6 +876,58 @@ def binance_manage_opens(client: KalshiClient, st: State) -> None:
 
 
 _BINANCE_NOTE_TS: dict[str, float] = {}
+_BINANCE_INTEL_TS: dict[str, float] = {}
+
+
+def binance_intel(ticker: str, mid: float | None, secs_left: float) -> str | None:
+    """Early intel: Binance already leaned, Kalshi mid still looks stale.
+
+    Returns suggested Kalshi side ('yes'/'no') when Binance moved first,
+    else None. Does not place orders by itself — used to log + bias filters.
+    """
+    if not _lead_active() or mid is None or symbol_for(ticker) is None:
+        return None
+    sig = LEAD_FEED.signal(ticker)
+    if sig is None or sig.direction == "flat" or sig.price <= 0:
+        return None
+
+    # Binance UP => Kalshi YES should get expensive; if yes-mid still soft, stale
+    # Binance DOWN => Kalshi NO should get expensive; if yes-mid still high, stale
+    if sig.direction == "up":
+        suggested = "yes"
+        stale = mid < 0.85  # Kalshi hasn't fully priced the up move yet
+    else:
+        suggested = "no"
+        stale = mid > 0.15  # yes still bid — down move not fully priced
+
+    if not stale:
+        return None
+
+    now = time.time()
+    key = f"{ticker}:{sig.direction}"
+    if now - _BINANCE_INTEL_TS.get(key, 0.0) < 20:
+        return suggested
+    _BINANCE_INTEL_TS[key] = now
+    log(
+        f"binance INTEL {ticker} {sig.symbol} {sig.direction} "
+        f"{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s @{sig.price:g} "
+        f"but Kalshi mid={mid:.3f} still stale → lean {suggested} "
+        f"({secs_left:.0f}s left)"
+    )
+    append_trade_log({
+        "event": "binance_intel",
+        "ticker": ticker,
+        "suggested_side": suggested,
+        "kalshi_mid": mid,
+        "secs_left": secs_left,
+        "symbol": sig.symbol,
+        "direction": sig.direction,
+        "ret_pct": sig.ret_pct,
+        "price": sig.price,
+        "window_sec": sig.window_sec,
+        "source": sig.source,
+    })
+    return suggested
 
 
 def main():
@@ -982,6 +1034,8 @@ def main():
                         mid = mid_of(m)
                         if mid is None:
                             continue
+                        # Early warning: Binance moved, Kalshi book still lagging
+                        binance_intel(ticker, mid, secs_left)
                         sig = signal_side(m, mid)
                         if sig is None:
                             pending.pop(ticker, None)

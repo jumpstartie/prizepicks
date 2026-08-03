@@ -75,13 +75,15 @@ Background poller reads Binance spot for **every series the bot trades**
 Public REST only — no Binance key. Over the last ~20s it classifies
 **up / down / flat**.
 
-Uses that lean on **entries and open positions**:
+Goal: **see Binance before Kalshi finishes adjusting**, then use that intel.
+
+- Logs `binance INTEL` when spot already leaned up/down but Kalshi mid is still stale
 - Kalshi **YES** = underlying UP; Kalshi **NO** = underlying DOWN
 - **filter** (default): skip new favorites when Binance has a **strong opposite** lean
 - **strict**: only enter when Binance lean matches the Kalshi side
 - **Unfilled rests:** cancel if Binance flips strongly against the order
 - **Filled positions:** log CONFIRM/WARN vs Binance (still hold to settle / spike TP)
-- Events: `binance_block`, `binance_cancel` in the trade jsonl; status each minute
+- Events: `binance_intel`, `binance_block`, `binance_cancel` in the trade jsonl
 
 ```bash
 python3 bot/binance_lead.py   # smoke-test the feed alone
