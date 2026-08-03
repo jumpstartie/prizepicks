@@ -21,9 +21,14 @@ START_EQUITY=20 MODE=paper python3 bot/runner.py
 ```
 
 Watches BNB/SOL/XRP 15m markets by default. In the final 3 minutes, if either
-side is at 90–97¢, rests a simulated maker order at mid and fills when the
-market subsequently trades through that price. Settles against the real
-Kalshi result. State in `bot/state.json`, trade log in `bot/trades.jsonl`.
+side is at 90–97¢, rests a simulated maker order at the touch. Settles against
+the real Kalshi result. State in `bot/state.json`, trade log in `bot/trades.jsonl`.
+
+`PAPER_FILL=backtest` (recommended for the $20 test) fills on the next poll,
+matching the research mid-fill assumption. `PAPER_FILL=touch` (default if unset
+in code path — pass explicitly) only fills when a new trade prints at the
+touch or the book crosses you — much closer to live maker reality, and much
+sparser, especially on the NO side.
 
 ## Run live
 

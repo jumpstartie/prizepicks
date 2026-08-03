@@ -135,15 +135,38 @@ def mid_of(m: dict) -> float | None:
     return None
 
 
-def signal_side(mid: float) -> tuple[str, float] | None:
+def signal_side(m: dict, mid: float) -> tuple[str, float] | None:
     """Return (side, entry_price) if mid qualifies, else None.
-    side 'yes' means buy YES at entry; 'no' means buy NO at entry
-    (which is resting an ask at 1-entry on the YES book)."""
+
+    Prices are set to join the touch so a post-only order can actually rest
+    in the queue: buy YES at the current yes bid; buy NO by resting an ask
+    at the current yes ask (entry NO price = 1 - yes_ask).
+    """
+    try:
+        bid = float(m["yes_bid_dollars"]) if m.get("yes_bid_dollars") is not None else None
+        ask = float(m["yes_ask_dollars"]) if m.get("yes_ask_dollars") is not None else None
+    except (TypeError, ValueError):
+        bid = ask = None
+
     if PRICE_LO <= mid < PRICE_HI:
-        return "yes", round(math.floor(mid * 100) / 100, 2)
-    no_price = 1.0 - mid
-    if PRICE_LO <= no_price < PRICE_HI:
-        return "no", round(math.floor(no_price * 100) / 100, 2)
+        # Join/improve the YES bid by at most staying inside the spread
+        if bid is not None and PRICE_LO <= bid < PRICE_HI:
+            entry = round(bid, 2)
+        else:
+            entry = round(math.floor(mid * 100) / 100, 2)
+        if PRICE_LO <= entry < PRICE_HI:
+            return "yes", entry
+
+    no_mid = 1.0 - mid
+    if PRICE_LO <= no_mid < PRICE_HI:
+        # Rest YES ask at the touch; NO entry = 1 - that ask
+        if ask is not None:
+            yes_ask = round(ask, 2)
+            entry = round(1.0 - yes_ask, 2)
+        else:
+            entry = round(math.floor(no_mid * 100) / 100, 2)
+        if PRICE_LO <= entry < PRICE_HI:
+            return "no", entry
     return None
 
 
@@ -213,44 +236,48 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
 
 
 def update_paper_fills(st: State, mkt: dict):
-    """Fill resting paper bids when the market subsequently trades through us.
-
-    Requires a NEW last price (different from the signal snapshot) at or through
-    our resting price, or the opposite side of the book crossing us. Avoids
-    instantly filling on the same quote that triggered the signal.
+    """Fill resting paper orders when at the touch and a new trade prints, or
+    when the book crosses us. PAPER_FILL=backtest fills on the next poll
+    (matches the research mid-fill assumption — optimistic).
     """
     ticker = mkt["ticker"]
-    last = mkt.get("last_price_dollars")
-    bid = mkt.get("yes_bid_dollars")
-    ask = mkt.get("yes_ask_dollars")
+    fill_mode = os.environ.get("PAPER_FILL", "touch").lower()
     try:
-        last_f = float(last) if last is not None else None
-        bid_f = float(bid) if bid is not None else None
-        ask_f = float(ask) if ask is not None else None
+        last_f = float(mkt["last_price_dollars"]) if mkt.get("last_price_dollars") is not None else None
+        bid_f = float(mkt["yes_bid_dollars"]) if mkt.get("yes_bid_dollars") is not None else None
+        ask_f = float(mkt["yes_ask_dollars"]) if mkt.get("yes_ask_dollars") is not None else None
+        vol = float(mkt.get("volume_fp") or mkt.get("volume") or 0)
     except (TypeError, ValueError):
         return
 
     for p in st.open_positions:
         if p.ticker != ticker or p.filled:
             continue
-        # give the order at least one poll cycle to rest
         if time.time() - p.opened_ts < POLL_SEC:
             continue
         filled = False
         new_trade = last_f is not None and last_f != p.last_at_signal
-        if p.side == "yes":
-            if (new_trade and last_f <= p.entry) or (ask_f is not None and ask_f <= p.entry):
+        if fill_mode == "backtest":
+            filled = True
+        elif p.side == "yes":
+            # crossed, or at/inside bid with a fresh trade at <= entry
+            if ask_f is not None and ask_f <= p.entry:
+                filled = True
+            elif new_trade and last_f <= p.entry and bid_f is not None and bid_f >= p.entry - 0.001:
                 filled = True
         else:
             yes_px = round(1 - p.entry, 4)
-            if (new_trade and last_f >= yes_px) or (bid_f is not None and bid_f >= yes_px):
+            if bid_f is not None and bid_f >= yes_px:
+                filled = True
+            elif new_trade and last_f is not None and last_f >= yes_px - 0.001 \
+                    and ask_f is not None and ask_f <= yes_px + 0.001:
                 filled = True
         if filled:
             p.filled = True
             st.cash -= p.cost
-            log(f"PAPER FILL {p.side.upper()} {p.contracts:.2f} @ {p.entry:.2f} "
-                f"on {p.ticker}  cash=${st.cash:.2f}")
-            append_trade_log({"event": "fill", **asdict(p)})
+            log(f"PAPER FILL ({fill_mode}) {p.side.upper()} {p.contracts:.2f} @ "
+                f"{p.entry:.2f} on {p.ticker}  cash=${st.cash:.2f}")
+            append_trade_log({"event": "fill", "fill_mode": fill_mode, **asdict(p)})
             st.save()
 
 
@@ -371,7 +398,7 @@ def main():
                     mid = mid_of(m)
                     if mid is None:
                         continue
-                    sig = signal_side(mid)
+                    sig = signal_side(m, mid)
                     if sig is None:
                         continue
                     side, entry = sig
