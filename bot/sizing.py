@@ -23,6 +23,7 @@ WIN_RATE = 0.95
 RISK_FRACTION = 0.05              # ~quarter-Kelly; 5% of equity risked per trade
 MAX_EXPOSURE_FRAC = 0.20          # max capital locked in open positions
 HALT_EQUITY_FRAC = 0.50           # stop trading if equity falls to 50% of start
+HALT_FLOOR_DOLLARS = 15.0         # absolute floor (overnight loss cap for ~$20 start)
 MIN_CONTRACTS = 0.01              # Kalshi minimum
 CONTRACT_STEP = 0.01
 
@@ -49,20 +50,26 @@ def max_concurrent(equity: float, entry: float = AVG_ENTRY) -> int:
     return max(1, int(cap // (entry * unit)))
 
 
-def should_halt(equity: float, start_equity: float) -> bool:
-    return equity <= start_equity * HALT_EQUITY_FRAC
+def should_halt(equity: float, start_equity: float,
+                floor: float | None = None) -> bool:
+    """Halt on fractional drawdown or absolute dollar floor (whichever is higher)."""
+    frac_floor = start_equity * HALT_EQUITY_FRAC
+    abs_floor = HALT_FLOOR_DOLLARS if floor is None else floor
+    return equity <= max(frac_floor, abs_floor)
 
 
-def describe(start_equity: float = 20.0) -> str:
+def describe(start_equity: float = 20.0, floor: float | None = None) -> str:
     unit = contracts_for_equity(start_equity)
     conc = max_concurrent(start_equity)
     risk = unit * LOSS_PER_CONTRACT
     locked = conc * unit * AVG_ENTRY
+    abs_floor = HALT_FLOOR_DOLLARS if floor is None else floor
+    halt_at = max(start_equity * HALT_EQUITY_FRAC, abs_floor)
     return (
         f"bankroll=${start_equity:.2f}  unit={unit:.2f} contracts/trade  "
         f"risk/trade=${risk:.2f} ({100*risk/start_equity:.1f}% of bankroll)  "
         f"max concurrent={conc} (locks ~${locked:.2f})  "
-        f"halt if equity <= ${start_equity*HALT_EQUITY_FRAC:.2f}"
+        f"halt if equity <= ${halt_at:.2f}"
     )
 
 

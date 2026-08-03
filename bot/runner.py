@@ -54,6 +54,8 @@ MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 # so this only fires when entry <= 1/mult, e.g. entry <= 33¢ for 3x).
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "3.0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
+# Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
+HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",
@@ -106,6 +108,7 @@ class State:
     positions: list[Position] = field(default_factory=list)
     closed: list[dict] = field(default_factory=list)
     signaled: list[str] = field(default_factory=list)  # tickers already acted on
+    halted: bool = False  # True once loss floor / drawdown halt trips
 
     @property
     def open_positions(self) -> list[Position]:
@@ -126,6 +129,7 @@ class State:
             "positions": [asdict(p) for p in self.positions],
             "closed": self.closed,
             "signaled": self.signaled,
+            "halted": self.halted,
             "saved_at": time.time(),
         }
         STATE_PATH.write_text(json.dumps(payload, indent=2))
@@ -135,14 +139,16 @@ class State:
         if STATE_PATH.exists():
             d = json.loads(STATE_PATH.read_text())
             st = cls(start_equity=d["start_equity"], cash=d["cash"], mode=d["mode"],
-                     signaled=d.get("signaled", []), closed=d.get("closed", []))
+                     signaled=d.get("signaled", []), closed=d.get("closed", []),
+                     halted=bool(d.get("halted", False)))
             fields = set(Position.__dataclass_fields__)
             st.positions = [
                 Position(**{k: v for k, v in p.items() if k in fields})
                 for p in d.get("positions", [])
             ]
             log(f"resumed state equity=${st.equity:.2f} cash=${st.cash:.2f} "
-                f"open={len(st.open_positions)} closed={len(st.closed)}")
+                f"open={len(st.open_positions)} closed={len(st.closed)} "
+                f"halted={st.halted}")
             return st
         st = cls(start_equity=start, cash=start, mode=mode)
         st.save()
@@ -269,10 +275,35 @@ def place_live_maker(client: KalshiClient, ticker: str, side: str, entry: float,
     return None, side, entry, last_err
 
 
+def enforce_halt(client: KalshiClient, st: State) -> bool:
+    """If equity hit the floor, cancel resting orders and freeze new entries."""
+    if st.halted:
+        return True
+    if not sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+        return False
+    st.halted = True
+    log(f"HALT RUN equity=${st.equity:.2f} <= floor ${HALT_FLOOR:.2f} "
+        f"(start was ${st.start_equity:.2f}) — no new trades")
+    for p in list(st.open_positions):
+        if p.filled or not p.order_id or st.mode != "live":
+            continue
+        try:
+            client.cancel_order(p.order_id, market_ticker=p.ticker)
+            log(f"HALT cancel resting {p.ticker}")
+            p.settled = True
+            p.pnl = 0.0
+            st.closed.append(asdict(p))
+        except Exception as e:
+            log(f"HALT cancel {p.ticker}: {e}")
+    st.save()
+    append_trade_log({"event": "halt", "equity": st.equity, "floor": HALT_FLOOR,
+                      "start_equity": st.start_equity, "cash": st.cash})
+    return True
+
+
 def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
-    if sizing.should_halt(st.equity, st.start_equity):
-        log(f"HALTED equity ${st.equity:.2f} <= "
-            f"${st.start_equity * sizing.HALT_EQUITY_FRAC:.2f}")
+    if st.halted or sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+        enforce_halt(client, st)
         return
     unit = sizing.contracts_for_equity(st.equity, entry)
     if unit <= 0:
@@ -653,11 +684,15 @@ def main():
             st.start_equity = st.cash
             st.save()
         log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
-    log(f"starting MODE={st.mode}  {sizing.describe(st.cash if st.mode == 'live' else st.start_equity)}")
+    bank = st.cash if st.mode == "live" else st.start_equity
+    log(f"starting MODE={st.mode}  {sizing.describe(bank, floor=HALT_FLOOR)}")
     log(f"series={SERIES}  window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)  "
-        f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})")
+        f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})  "
+        f"halt_floor=${HALT_FLOOR:.2f}")
+    if st.halted:
+        log(f"already HALTED from prior run — settling only, no new trades")
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
@@ -665,6 +700,8 @@ def main():
         try:
             if st.mode == "live":
                 update_live_fills(client, st)
+                sync_live_cash(client, st)
+            enforce_halt(client, st)
             settle_due(client, st)
             now = time.time()
             markets_by_ticker: dict[str, dict] = {}
@@ -690,6 +727,9 @@ def main():
                     if st.mode == "paper":
                         update_paper_fills(st, m)
 
+                    if st.halted:
+                        pending.pop(ticker, None)
+                        continue
                     if ticker in st.signaled:
                         pending.pop(ticker, None)
                         continue
@@ -735,7 +775,8 @@ def main():
             if now - last_summary > 60:
                 if st.mode == "live":
                     sync_live_cash(client, st)
-                log(summary(st))
+                halt_tag = "  HALTED" if st.halted else ""
+                log(summary(st) + halt_tag)
                 last_summary = now
         except Exception as e:
             log(f"loop error: {e}")

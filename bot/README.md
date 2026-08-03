@@ -51,6 +51,7 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 | `STOP_DISABLE_SECS` | `60` | disable stop in final N seconds (hold to settle) |
 | `TAKE_PROFIT_MULT` | `3.0` | exit if mark ≥ entry × mult (per trade) |
 | `TAKE_PROFIT_CAP` | `0.99` | max TP price on a $1 binary |
+| `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
 | `MAX_REQUOTES` | `3` | post-only-cross requote attempts |
 | `POLL_SEC` | `5` | market poll interval |
 
