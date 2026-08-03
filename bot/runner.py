@@ -29,10 +29,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
 from bot import sizing
 
-# Books with positive 31-day favorite-maker EV. BTC/DOGE omitted (flat/negative).
+# Core books (positive 31d EV) + satellites (ETH liquid-but-flat, GOLD untested).
 SERIES = os.environ.get(
-    "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M"
+    "SERIES",
+    "KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M,KXETH15M,KXGOLD15M",
 ).split(",")
+# Half-size until live EV proves out (override via SATELLITE_SERIES=)
+SATELLITE_SERIES = set(
+    s.strip() for s in os.environ.get(
+        "SATELLITE_SERIES", "KXETH15M,KXGOLD15M"
+    ).split(",") if s.strip()
+)
+SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
 START_EQUITY = float(os.environ.get("START_EQUITY", "20"))
 MODE = os.environ.get("MODE", "paper").lower()  # paper | live
 POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
@@ -301,22 +309,31 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
     return True
 
 
+def series_root(ticker: str) -> str:
+    return ticker.split("-", 1)[0]
+
+
+def size_mult_for(ticker: str) -> float:
+    return SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
+
+
 def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if st.halted or sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
         enforce_halt(client, st)
         return
-    unit = sizing.contracts_for_equity(st.equity, entry)
+    ticker = m["ticker"]
+    mult = size_mult_for(ticker)
+    unit = sizing.contracts_for_equity(st.equity, entry, size_mult=mult)
     if unit <= 0:
         return
     if len(st.open_positions) >= sizing.max_concurrent(st.equity, entry):
-        log(f"skip {m['ticker']}: at max concurrent")
+        log(f"skip {ticker}: at max concurrent")
         return
     cost = unit * entry
     if cost > st.cash:
-        log(f"skip {m['ticker']}: need ${cost:.2f}, cash ${st.cash:.2f}")
+        log(f"skip {ticker}: need ${cost:.2f}, cash ${st.cash:.2f}")
         return
 
-    ticker = m["ticker"]
     try:
         last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
     except (TypeError, ValueError):
@@ -324,7 +341,7 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     close_ts = parse_ts(m["close_time"])
     tp = tp_price_for_entry(entry)
     pos = Position(
-        ticker=ticker, series=m.get("event_ticker", ticker.split("-")[0]),
+        ticker=ticker, series=m.get("event_ticker", series_root(ticker)),
         side=side, contracts=unit, entry=entry, cost=cost,
         opened_ts=time.time(), close_ts=close_ts,
         last_at_signal=last_at, tp_price=tp,
@@ -351,12 +368,14 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             pos.cost = entry * fill
             st.cash -= pos.cost
         tp_note = f"tp={tp:.2f}" if tp is not None else f"tp=n/a (need entry≤{TAKE_PROFIT_CAP/TAKE_PROFIT_MULT:.2f} for {TAKE_PROFIT_MULT:.0f}x)"
+        sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
-            f"order_id={pos.order_id} fill={fill}  {tp_note}")
+            f"order_id={pos.order_id} fill={fill}  {tp_note}{sat}")
     else:
         tp_note = f"tp={tp:.2f}" if tp is not None else "tp=n/a"
+        sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
-            f"(mid signal, {int(close_ts - time.time())}s to close)  {tp_note}")
+            f"(mid signal, {int(close_ts - time.time())}s to close)  {tp_note}{sat}")
 
     st.positions.append(pos)
     st.signaled.append(ticker)
@@ -686,7 +705,8 @@ def main():
         log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
     bank = st.cash if st.mode == "live" else st.start_equity
     log(f"starting MODE={st.mode}  {sizing.describe(bank, floor=HALT_FLOOR)}")
-    log(f"series={SERIES}  window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
+    log(f"series={SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
+        f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)  "
         f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})  "

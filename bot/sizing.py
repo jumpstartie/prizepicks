@@ -28,11 +28,15 @@ MIN_CONTRACTS = 0.01              # Kalshi minimum
 CONTRACT_STEP = 0.01
 
 
-def contracts_for_equity(equity: float, entry: float = AVG_ENTRY) -> float:
-    """Contracts to buy on the next signal given current equity."""
-    if equity <= 0 or entry <= 0:
+def contracts_for_equity(equity: float, entry: float = AVG_ENTRY,
+                         size_mult: float = 1.0) -> float:
+    """Contracts to buy on the next signal given current equity.
+
+    size_mult < 1 scales down (e.g. 0.5 for untested satellite markets).
+    """
+    if equity <= 0 or entry <= 0 or size_mult <= 0:
         return 0.0
-    risk_budget = equity * RISK_FRACTION
+    risk_budget = equity * RISK_FRACTION * size_mult
     raw = risk_budget / entry
     # Floor to exchange step; never below min if we can afford one min lot
     stepped = math.floor(raw / CONTRACT_STEP) * CONTRACT_STEP

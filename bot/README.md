@@ -20,7 +20,7 @@ aggressive given edge uncertainty). Unit auto-resizes as equity changes.
 START_EQUITY=20 MODE=paper python3 bot/runner.py
 ```
 
-Watches BNB/SOL/XRP/ZEC/HYPE 15m markets by default. In the final 3 minutes,
+Watches BNB/SOL/XRP/ZEC/HYPE plus half-size ETH/GOLD 15m markets. In the final 3 minutes,
 if either side is at 90–97¢ for 2 consecutive polls with ≥60s left, rests a
 simulated maker order at the touch. Settles against the real Kalshi result.
 State in `bot/state.json`, trade log in `bot/trades.jsonl`.
@@ -42,7 +42,9 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 |---|---|---|
 | `START_EQUITY` | `20` | starting bankroll for sizing / halt |
 | `MODE` | `paper` | `paper` or `live` |
-| `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M` | markets to trade |
+| `SERIES` | BNB,SOL,XRP,ZEC,HYPE,**ETH,GOLD** | markets to trade |
+| `SATELLITE_SERIES` | `KXETH15M,KXGOLD15M` | half-size exploratory books |
+| `SATELLITE_SIZE_MULT` | `0.5` | size multiplier for satellites |
 | `WINDOW_SEC` | `180` | earliest signal window before close |
 | `MIN_SECS_LEFT` | `60` | no new entries inside final minute |
 | `CONFIRM_POLLS` | `2` | same-side band must hold this many polls |
