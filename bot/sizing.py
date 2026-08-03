@@ -21,7 +21,8 @@ WIN_RATE = 0.95
 
 # Risk controls for a $20 test account
 RISK_FRACTION = 0.05              # ~quarter-Kelly; 5% of equity risked per trade
-MAX_EXPOSURE_FRAC = 0.20          # max capital locked in open positions
+MAX_EXPOSURE_FRAC = 0.50          # max capital locked across concurrent positions
+MAX_CONCURRENT = 7                # hard cap: one open order/position per series
 HALT_EQUITY_FRAC = 0.50           # stop trading if equity falls to 50% of start
 HALT_FLOOR_DOLLARS = 15.0         # absolute floor (overnight loss cap for ~$20 start)
 MIN_CONTRACTS = 0.01              # Kalshi minimum
@@ -45,13 +46,18 @@ def contracts_for_equity(equity: float, entry: float = AVG_ENTRY,
     return round(stepped, 2)
 
 
-def max_concurrent(equity: float, entry: float = AVG_ENTRY) -> int:
+def max_concurrent(equity: float, entry: float = AVG_ENTRY,
+                   hard_cap: int | None = None,
+                   exposure_frac: float | None = None) -> int:
     """Max simultaneous open positions at the current unit size."""
     unit = contracts_for_equity(equity, entry)
     if unit <= 0:
         return 0
-    cap = equity * MAX_EXPOSURE_FRAC
-    return max(1, int(cap // (entry * unit)))
+    frac = MAX_EXPOSURE_FRAC if exposure_frac is None else exposure_frac
+    cap = equity * frac
+    by_capital = max(1, int(cap // (entry * unit)))
+    limit = MAX_CONCURRENT if hard_cap is None else hard_cap
+    return max(1, min(by_capital, limit))
 
 
 def should_halt(equity: float, start_equity: float,
@@ -72,7 +78,8 @@ def describe(start_equity: float = 20.0, floor: float | None = None) -> str:
     return (
         f"bankroll=${start_equity:.2f}  unit={unit:.2f} contracts/trade  "
         f"risk/trade=${risk:.2f} ({100*risk/start_equity:.1f}% of bankroll)  "
-        f"max concurrent={conc} (locks ~${locked:.2f})  "
+        f"max concurrent={conc}/{MAX_CONCURRENT} (locks ~${locked:.2f}, "
+        f"{100*MAX_EXPOSURE_FRAC:.0f}% exposure)  "
         f"halt if equity <= ${halt_at:.2f}"
     )
 

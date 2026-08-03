@@ -64,6 +64,9 @@ TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "3.0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
+# Concurrent positions: allow one per series, up to exposure budget
+MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
+MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",
@@ -326,10 +329,21 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     unit = sizing.contracts_for_equity(st.equity, entry, size_mult=mult)
     if unit <= 0:
         return
-    if len(st.open_positions) >= sizing.max_concurrent(st.equity, entry):
-        log(f"skip {ticker}: at max concurrent")
+    # Already in this market?
+    if any(p.ticker == ticker for p in st.open_positions):
+        return
+    conc_cap = sizing.max_concurrent(
+        st.equity, entry, hard_cap=MAX_CONCURRENT, exposure_frac=MAX_EXPOSURE_FRAC
+    )
+    if len(st.open_positions) >= conc_cap:
+        log(f"skip {ticker}: at max concurrent {conc_cap}")
         return
     cost = unit * entry
+    committed = sum(p.cost for p in st.open_positions)
+    if committed + cost > st.equity * MAX_EXPOSURE_FRAC:
+        log(f"skip {ticker}: exposure ${committed+cost:.2f} > "
+            f"{100*MAX_EXPOSURE_FRAC:.0f}% of equity")
+        return
     if cost > st.cash:
         log(f"skip {ticker}: need ${cost:.2f}, cash ${st.cash:.2f}")
         return
@@ -707,7 +721,8 @@ def main():
     log(f"starting MODE={st.mode}  {sizing.describe(bank, floor=HALT_FLOOR)}")
     log(f"series={SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
         f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
-        f"confirm={CONFIRM_POLLS}  price=[{PRICE_LO},{PRICE_HI})  "
+        f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
+        f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)  "
         f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}")
