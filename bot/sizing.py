@@ -20,7 +20,7 @@ LOSS_PER_CONTRACT = AVG_ENTRY     # lose the entry price on a loser
 WIN_RATE = 0.95
 
 # Risk controls for a $20 test account
-RISK_FRACTION = 0.05              # ~quarter-Kelly; 5% of equity risked per trade
+RISK_FRACTION = 0.10              # ~$2/trade on a $20 book; still below half-Kelly
 MAX_EXPOSURE_FRAC = 0.50          # max capital locked across concurrent positions
 MAX_CONCURRENT = 7                # hard cap: one open order/position per series
 HALT_EQUITY_FRAC = 0.50           # stop trading if equity falls to 50% of start

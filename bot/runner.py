@@ -65,6 +65,9 @@ HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
 MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))
+# Allow override of risk fraction without editing sizing.py
+if os.environ.get("RISK_FRACTION"):
+    sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",

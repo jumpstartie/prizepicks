@@ -5,14 +5,14 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ## $20 test sizing
 
 ```
-bankroll=$20.00  unit=1.07 contracts/trade
-risk/trade=$1.00 (5.0% of bankroll)
-max concurrent=4 (locks ~$3.98)
-halt if equity <= $10.00
+bankroll=$20.00  unit≈2.15 contracts/trade
+risk/trade≈$2.00 (10% of bankroll)
+max concurrent=3 core books
+halt if equity <= $15.00
 ```
 
-Derived from quarter-Kelly on the 31-day backtest (full Kelly ~28% is far too
-aggressive given edge uncertainty). Unit auto-resizes as equity changes.
+~10% of equity per trade (still below half-Kelly). Unit auto-resizes as equity
+changes. Override with `RISK_FRACTION=0.05` for the smaller size.
 
 ## Run paper (no API keys)
 
