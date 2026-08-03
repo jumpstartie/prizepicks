@@ -58,7 +58,7 @@ CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
 MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 # Per-trade take-profit: exit when mark >= entry * mult (binaries cap at $1,
 # so this only fires when entry <= 1/mult, e.g. entry <= 33¢ for 3x).
-TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "3.0"))
+TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "2.0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
@@ -600,7 +600,7 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
         if mark is None:
             continue
 
-        # Take-profit first: 3x entry (only if tp_price was attainable at entry)
+        # Take-profit first: Nx entry (only if tp_price was attainable at entry)
         tp = p.tp_price if p.tp_price is not None else tp_price_for_entry(p.entry)
         if tp is not None and mark >= tp:
             log(f"tp trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "

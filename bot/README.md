@@ -53,7 +53,7 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled (set e.g. `0.20` to enable) |
 | `STOP_DISABLE_SECS` | `60` | if stop enabled, disable in final N seconds |
-| `TAKE_PROFIT_MULT` | `3.0` | exit if mark ≥ entry × mult (per trade) |
+| `TAKE_PROFIT_MULT` | `2.0` | exit if mark ≥ entry × mult (per trade) |
 | `TAKE_PROFIT_CAP` | `0.99` | max TP price on a $1 binary |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
 | `MAX_CONCURRENT` | `7` | max simultaneous open orders/positions |
@@ -70,5 +70,5 @@ ZEC/HYPE added as secondary). Override `SERIES` only if you accept flat EV.
 ### Stop-loss / take-profit
 
 - **Stop:** **off by default**. Live: every settle was a win; both stops lost money.
-- **Take-profit:** mark reaches **3× entry** → IOC exit (only if entry ≤ 33¢).
-  Favorites hold to settlement.
+- **Take-profit:** mark reaches **2× entry** → IOC exit (only if entry ≤ 49¢).
+  90–97¢ favorites cannot double on a $1 binary — they hold to settlement.
