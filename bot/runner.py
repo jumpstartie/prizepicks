@@ -1074,6 +1074,7 @@ def main():
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
+    last_watch: dict[str, float] = {}
     try:
         while RUNNING:
             try:
@@ -1128,6 +1129,13 @@ def main():
                         sig = signal_side(m, mid)
                         if sig is None:
                             pending.pop(ticker, None)
+                            # In-window but no 90–97¢ favorite — say why (throttled)
+                            fav = max(mid, 1.0 - mid)
+                            if now - last_watch.get(ticker, 0.0) >= 30:
+                                last_watch[ticker] = now
+                                log(f"watch {ticker} {secs_left:.0f}s left mid={mid:.3f} "
+                                    f"fav≈{fav:.3f} — need [{PRICE_LO},{PRICE_HI}) "
+                                    f"{'too rich' if fav >= PRICE_HI else 'too cheap/coin-flip'}")
                             continue
                         side, entry = sig
                         hit = pending.get(ticker)
