@@ -29,16 +29,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
 from bot import sizing
 
-# Core books (positive 31d EV) + satellites (ETH liquid-but-flat, GOLD untested).
+# Profit-first defaults from live + 31d research: core favorites only, hold to settle.
+# (HYPE/ZEC stops were the only live losses; BTC/DOGE/ETH were flat in backtest.)
 SERIES = os.environ.get(
-    "SERIES",
-    "KXBNB15M,KXSOL15M,KXXRP15M,KXZEC15M,KXHYPE15M,KXETH15M,KXGOLD15M",
+    "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M"
 ).split(",")
-# Half-size until live EV proves out (override via SATELLITE_SERIES=)
+# Optional half-size satellites (empty by default — add via env when exploring)
 SATELLITE_SERIES = set(
-    s.strip() for s in os.environ.get(
-        "SATELLITE_SERIES", "KXETH15M,KXGOLD15M"
-    ).split(",") if s.strip()
+    s.strip() for s in os.environ.get("SATELLITE_SERIES", "").split(",") if s.strip()
 )
 SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
 START_EQUITY = float(os.environ.get("START_EQUITY", "20"))
@@ -46,8 +44,8 @@ MODE = os.environ.get("MODE", "paper").lower()  # paper | live
 POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
 PRICE_LO = float(os.environ.get("PRICE_LO", "0.90"))
 PRICE_HI = float(os.environ.get("PRICE_HI", "0.97"))
-# Exit if our side's mark falls this fraction below entry (0.20 = 20%)
-STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0.20"))
+# 0 = disabled. Live data: settle exits +EV, stop exits wiped the edge.
+STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0"))
 # Do not stop-loss in the final N seconds — hold to settlement (favorites wick).
 STOP_DISABLE_SECS = int(os.environ.get("STOP_DISABLE_SECS", "60"))
 # Signal window: last N seconds before close
@@ -607,8 +605,8 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
             close_position_exit(client, st, p, mark, "take_profit")
             continue
 
-        # Stop-loss: disabled in final STOP_DISABLE_SECS
-        if secs_left <= STOP_DISABLE_SECS:
+        # Stop-loss (off when STOP_LOSS_PCT <= 0); also disabled in final minute
+        if STOP_LOSS_PCT <= 0 or secs_left <= STOP_DISABLE_SECS:
             continue
         if stop_triggered(p.entry, mark):
             log(f"stop trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
@@ -723,7 +721,7 @@ def main():
         f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
         f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
-        f"stop_loss={100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)  "
+        f"stop_loss={'OFF' if STOP_LOSS_PCT <= 0 else f'{100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)'}  "
         f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}")
     if st.halted:

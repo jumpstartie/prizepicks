@@ -20,7 +20,8 @@ aggressive given edge uncertainty). Unit auto-resizes as equity changes.
 START_EQUITY=20 MODE=paper python3 bot/runner.py
 ```
 
-Watches BNB/SOL/XRP/ZEC/HYPE plus half-size ETH/GOLD 15m markets. In the final 3 minutes,
+Profit-first default: BNB/SOL/XRP only, hold to settlement, stop-loss off.
+In the final 3 minutes,
 if either side is at 90–97¢ for 2 consecutive polls with ≥60s left, rests a
 simulated maker order at the touch. Settles against the real Kalshi result.
 State in `bot/state.json`, trade log in `bot/trades.jsonl`.
@@ -42,15 +43,15 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 |---|---|---|
 | `START_EQUITY` | `20` | starting bankroll for sizing / halt |
 | `MODE` | `paper` | `paper` or `live` |
-| `SERIES` | BNB,SOL,XRP,ZEC,HYPE,**ETH,GOLD** | markets to trade |
-| `SATELLITE_SERIES` | `KXETH15M,KXGOLD15M` | half-size exploratory books |
+| `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M` | core markets (proven live) |
+| `SATELLITE_SERIES` | _(empty)_ | optional half-size exploratories |
 | `SATELLITE_SIZE_MULT` | `0.5` | size multiplier for satellites |
 | `WINDOW_SEC` | `180` | earliest signal window before close |
 | `MIN_SECS_LEFT` | `60` | no new entries inside final minute |
 | `CONFIRM_POLLS` | `2` | same-side band must hold this many polls |
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
-| `STOP_LOSS_PCT` | `0.20` | exit if mark falls this fraction under entry |
-| `STOP_DISABLE_SECS` | `60` | disable stop in final N seconds (hold to settle) |
+| `STOP_LOSS_PCT` | `0` | stop-loss disabled (set e.g. `0.20` to enable) |
+| `STOP_DISABLE_SECS` | `60` | if stop enabled, disable in final N seconds |
 | `TAKE_PROFIT_MULT` | `3.0` | exit if mark ≥ entry × mult (per trade) |
 | `TAKE_PROFIT_CAP` | `0.99` | max TP price on a $1 binary |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
@@ -67,7 +68,6 @@ ZEC/HYPE added as secondary). Override `SERIES` only if you accept flat EV.
 
 ### Stop-loss / take-profit
 
-- **Stop:** mark drops **20% below entry** → IOC exit (disabled in final 60s).
-- **Take-profit:** mark reaches **3× entry** → IOC exit. On a $0–$1 binary that
-  only fires when entry ≤ 33¢. Our 90–97¢ favorites settle at $1 (~1.05–1.1×),
-  so TP is n/a on those trades and we hold to settlement instead.
+- **Stop:** **off by default**. Live: every settle was a win; both stops lost money.
+- **Take-profit:** mark reaches **3× entry** → IOC exit (only if entry ≤ 33¢).
+  Favorites hold to settlement.
