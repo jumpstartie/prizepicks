@@ -1,1 +1,5 @@
 data/
+bot/state.json
+bot/trades.jsonl
+*.key
+.env
