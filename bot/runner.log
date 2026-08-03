@@ -1,3 +1,0 @@
-[17:52:25] starting MODE=paper  bankroll=$20.00  unit=1.07 contracts/trade  risk/trade=$1.00 (5.0% of bankroll)  max concurrent=4 (locks ~$3.98)  halt if equity <= $10.00
-[17:52:25] series=['KXBNB15M', 'KXSOL15M', 'KXXRP15M']  window=180s  price=[0.9,0.97)
-[17:52:25] equity=$20.00 cash=$20.00 open=0 closed=0  unit=1.07

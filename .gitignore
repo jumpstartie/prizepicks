@@ -3,3 +3,5 @@ bot/state.json
 bot/trades.jsonl
 *.key
 .env
+__pycache__/
+bot/runner.log
