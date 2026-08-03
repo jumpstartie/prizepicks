@@ -1,21 +1,19 @@
-"""Binance spot lead feed for Kalshi 15m crypto up/down markets.
+"""Fast lead feed for Kalshi 15m crypto up/down markets.
 
-Polls Binance public market data (no API key) and classifies short-horizon
-direction so the Kalshi runner can lean/filter favorites:
+Primary: Binance trade WebSocket (data-stream.binance.vision)
+Confirm: Coinbase spot REST (same-direction check)
+Fallback: Binance REST poller
 
-  Kalshi YES  ~= underlying UP
-  Kalshi NO   ~= underlying DOWN
-
-Primary endpoint defaults to data-api.binance.vision (works where
-api.binance.com is geo-blocked). Falls back to api.binance.us.
+Kalshi YES ~= underlying UP; Kalshi NO ~= underlying DOWN.
+Threshold is vol-adjusted so quiet tapes don't spam false leans.
 """
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
-import urllib.error
 import urllib.request
 from collections import deque
 from dataclasses import dataclass
@@ -27,8 +25,10 @@ DEFAULT_BASES = (
     "https://api.binance.us",
     "https://api.binance.com",
 )
+WS_URL = os.environ.get(
+    "BINANCE_WS_URL", "wss://data-stream.binance.vision/stream"
+)
 
-# Kalshi series root -> Binance spot symbol
 SERIES_SYMBOLS = {
     "KXXRP15M": "XRPUSDT",
     "KXBNB15M": "BNBUSDT",
@@ -37,32 +37,41 @@ SERIES_SYMBOLS = {
     "KXETH15M": "ETHUSDT",
     "KXDOGE15M": "DOGEUSDT",
 }
+COINBASE_PRODUCT = {
+    "XRPUSDT": "XRP-USD",
+    "BNBUSDT": "BNB-USD",
+    "SOLUSDT": "SOL-USD",
+    "BTCUSDT": "BTC-USD",
+    "ETHUSDT": "ETH-USD",
+    "DOGEUSDT": "DOGE-USD",
+}
 
 
 @dataclass
 class LeadSignal:
     symbol: str
     direction: str          # "up" | "down" | "flat"
-    ret_pct: float          # fractional return over window (e.g. 0.001 = +0.10%)
+    ret_pct: float
     price: float
     window_sec: float
     ts: float
     source: str
+    vol: float = 0.0
+    threshold: float = 0.0
+    confirmed: bool | None = None  # Coinbase same-way confirm
 
 
 def series_root(ticker_or_series: str) -> str:
-    # KXXRP15M-26AUG031745-45 -> KXXRP15M
     parts = ticker_or_series.split("-")
     return parts[0] if parts else ticker_or_series
 
 
 def symbol_for(ticker_or_series: str) -> str | None:
-    root = series_root(ticker_or_series)
-    return SERIES_SYMBOLS.get(root)
+    return SERIES_SYMBOLS.get(series_root(ticker_or_series))
 
 
 class BinanceLeadFeed:
-    """Background sampler of Binance last prices + lean helper."""
+    """Binance trade stream + vol-adjusted lean + optional Coinbase confirm."""
 
     def __init__(
         self,
@@ -75,62 +84,133 @@ class BinanceLeadFeed:
         self.symbols = symbols or sorted(set(SERIES_SYMBOLS.values()))
         self.window_sec = float(
             window_sec if window_sec is not None
-            else os.environ.get("BINANCE_LEAD_WINDOW_SEC", "20")
+            else os.environ.get("BINANCE_LEAD_WINDOW_SEC", "15")
         )
-        # Move larger than this (fraction) counts as a lean. Default 0.08%.
-        self.threshold_pct = float(
+        self.base_threshold = float(
             threshold_pct if threshold_pct is not None
             else os.environ.get("BINANCE_LEAD_PCT", "0.0008")
         )
+        self.vol_mult = float(os.environ.get("BINANCE_LEAD_VOL_MULT", "1.25"))
         self.poll_sec = float(
             poll_sec if poll_sec is not None
             else os.environ.get("BINANCE_LEAD_POLL_SEC", "2")
         )
+        self.confirm = os.environ.get("COINBASE_CONFIRM", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.use_ws = os.environ.get("BINANCE_WS", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
         self.bases = bases
         self._hist: dict[str, Deque[tuple[float, float]]] = {
+            s: deque(maxlen=5000) for s in self.symbols
+        }
+        self._cb_hist: dict[str, Deque[tuple[float, float]]] = {
             s: deque(maxlen=600) for s in self.symbols
         }
         self._last: dict[str, LeadSignal] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._threads: list[threading.Thread] = []
         self._active_base: str | None = None
         self._last_error: str = ""
+        self._ws_ok = False
 
+    # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        if self._threads:
             return
         self._stop.clear()
-        self._thread = threading.Thread(
-            target=self._loop, name="binance-lead", daemon=True
-        )
-        self._thread.start()
+        if self.use_ws:
+            t = threading.Thread(target=self._ws_loop, name="binance-ws", daemon=True)
+            t.start()
+            self._threads.append(t)
+        # REST sampler always runs as backup / bootstrap
+        t2 = threading.Thread(target=self._rest_loop, name="binance-rest", daemon=True)
+        t2.start()
+        self._threads.append(t2)
+        if self.confirm:
+            t3 = threading.Thread(target=self._coinbase_loop, name="coinbase", daemon=True)
+            t3.start()
+            self._threads.append(t3)
 
     def stop(self) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=3)
+        for t in self._threads:
+            t.join(timeout=3)
+        self._threads.clear()
 
     def ensure_symbols(self, symbols: list[str] | set[str]) -> list[str]:
-        """Add symbols at runtime (e.g. when new series/positions appear)."""
         added: list[str] = []
         with self._lock:
             for sym in symbols:
                 if not sym or sym in self._hist:
                     continue
                 self.symbols.append(sym)
-                self._hist[sym] = deque(maxlen=600)
+                self._hist[sym] = deque(maxlen=5000)
+                self._cb_hist[sym] = deque(maxlen=600)
                 added.append(sym)
         return added
 
-    def _fetch_price(self, symbol: str) -> tuple[float, str]:
+    # --- feeds -------------------------------------------------------------
+    def _push(self, symbol: str, ts: float, px: float, source: str) -> None:
+        with self._lock:
+            if symbol not in self._hist:
+                self._hist[symbol] = deque(maxlen=5000)
+                if symbol not in self.symbols:
+                    self.symbols.append(symbol)
+            self._hist[symbol].append((ts, px))
+            self._active_base = source
+            self._last[symbol] = self._compute_locked(symbol, ts)
+
+    def _ws_loop(self) -> None:
+        try:
+            import websocket  # type: ignore
+        except Exception as e:
+            self._last_error = f"websocket import: {e}"
+            return
+        while not self._stop.is_set():
+            streams = "/".join(f"{s.lower()}@trade" for s in list(self.symbols))
+            url = f"{WS_URL}?streams={streams}"
+            ws = None
+            try:
+                ws = websocket.create_connection(url, timeout=10)
+                ws.settimeout(15)
+                self._ws_ok = True
+                self._last_error = ""
+                while not self._stop.is_set():
+                    raw = ws.recv()
+                    if not raw:
+                        break
+                    msg = json.loads(raw)
+                    data = msg.get("data") or msg
+                    if data.get("e") != "trade":
+                        continue
+                    sym = data.get("s")
+                    px = float(data["p"])
+                    ts = float(data.get("T") or data.get("E") or time.time() * 1000) / 1000.0
+                    if sym:
+                        self._push(sym, ts, px, "binance-ws")
+            except Exception as e:
+                self._ws_ok = False
+                self._last_error = f"ws: {e}"
+                self._stop.wait(2)
+            finally:
+                try:
+                    if ws is not None:
+                        ws.close()
+                except Exception:
+                    pass
+
+    def _fetch_binance_price(self, symbol: str) -> tuple[float, str]:
         last_err: Exception | None = None
-        # Prefer last working base
         bases = list(self.bases)
         if self._active_base and self._active_base in bases:
             bases.remove(self._active_base)
             bases.insert(0, self._active_base)
         for base in bases:
+            if not base.startswith("http"):
+                continue
             url = f"{base.rstrip('/')}/api/v3/ticker/price?symbol={symbol}"
             try:
                 req = urllib.request.Request(
@@ -138,37 +218,76 @@ class BinanceLeadFeed:
                 )
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read().decode())
-                px = float(data["price"])
-                self._active_base = base
-                return px, base
+                return float(data["price"]), base
             except Exception as e:
                 last_err = e
-                continue
         raise RuntimeError(f"binance price failed for {symbol}: {last_err}")
 
-    def _loop(self) -> None:
+    def _rest_loop(self) -> None:
         while not self._stop.is_set():
-            now = time.time()
-            for sym in self.symbols:
+            # If WS is healthy, REST can be slower backup
+            wait = self.poll_sec if not self._ws_ok else max(self.poll_sec, 5.0)
+            for sym in list(self.symbols):
                 try:
-                    px, src = self._fetch_price(sym)
-                    with self._lock:
-                        self._hist[sym].append((now, px))
-                        self._last[sym] = self._compute_locked(sym, now)
+                    px, src = self._fetch_binance_price(sym)
+                    self._push(sym, time.time(), px, src)
                     self._last_error = ""
                 except Exception as e:
-                    self._last_error = str(e)
-            self._stop.wait(self.poll_sec)
+                    if not self._ws_ok:
+                        self._last_error = str(e)
+            self._stop.wait(wait)
 
-    def _compute_locked(self, symbol: str, now: float | None = None) -> LeadSignal:
-        now = now if now is not None else time.time()
-        hist = self._hist[symbol]
+    def _coinbase_loop(self) -> None:
+        while not self._stop.is_set():
+            for sym in list(self.symbols):
+                product = COINBASE_PRODUCT.get(sym)
+                if not product:
+                    continue
+                url = f"https://api.coinbase.com/v2/prices/{product}/spot"
+                try:
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "kalshi-lead-bot/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode())
+                    px = float(data["data"]["amount"])
+                    now = time.time()
+                    with self._lock:
+                        self._cb_hist[sym].append((now, px))
+                        if sym in self._last:
+                            # refresh confirm flag
+                            self._last[sym] = self._compute_locked(sym, now)
+                except Exception:
+                    pass
+            self._stop.wait(max(2.0, self.poll_sec))
+
+    # --- signal math -------------------------------------------------------
+    def _vol_locked(self, hist: Deque[tuple[float, float]]) -> float:
+        """Short-horizon realized vol from 1s returns (fraction)."""
+        if len(hist) < 8:
+            return 0.0
+        # sample last ~window prices roughly evenly
+        pts = list(hist)[-120:]
+        rets = []
+        for i in range(1, len(pts)):
+            p0, p1 = pts[i - 1][1], pts[i][1]
+            if p0 > 0 and p1 > 0:
+                rets.append((p1 - p0) / p0)
+        if len(rets) < 5:
+            return 0.0
+        mean = sum(rets) / len(rets)
+        var = sum((r - mean) ** 2 for r in rets) / max(1, len(rets) - 1)
+        # scale to window: sigma_1 * sqrt(n_steps in window)
+        step = max(1e-6, (pts[-1][0] - pts[0][0]) / max(1, len(pts) - 1))
+        n_steps = max(1.0, self.window_sec / step)
+        return math.sqrt(var) * math.sqrt(n_steps)
+
+    def _ret_over(self, hist: Deque[tuple[float, float]],
+                  window: float, now: float) -> tuple[float, float]:
         if not hist:
-            return LeadSignal(symbol, "flat", 0.0, 0.0, self.window_sec, now,
-                              self._active_base or "")
+            return 0.0, 0.0
         latest_ts, latest_px = hist[-1]
-        # oldest price at or before now - window
-        cutoff = latest_ts - self.window_sec
+        cutoff = latest_ts - window
         base_px = hist[0][1]
         for ts, px in hist:
             if ts <= cutoff:
@@ -176,23 +295,47 @@ class BinanceLeadFeed:
             else:
                 break
         if base_px <= 0:
-            ret = 0.0
-        else:
-            ret = (latest_px - base_px) / base_px
-        if ret >= self.threshold_pct:
+            return 0.0, latest_px
+        return (latest_px - base_px) / base_px, latest_px
+
+    def _compute_locked(self, symbol: str, now: float | None = None) -> LeadSignal:
+        now = now if now is not None else time.time()
+        hist = self._hist.get(symbol) or deque()
+        if not hist:
+            return LeadSignal(symbol, "flat", 0.0, 0.0, self.window_sec, now, "")
+        ret, latest_px = self._ret_over(hist, self.window_sec, now)
+        vol = self._vol_locked(hist)
+        thresh = max(self.base_threshold, self.vol_mult * vol * 0.25)
+        # also never below base
+        thresh = max(self.base_threshold, thresh)
+        if ret >= thresh:
             direction = "up"
-        elif ret <= -self.threshold_pct:
+        elif ret <= -thresh:
             direction = "down"
         else:
             direction = "flat"
+
+        confirmed: bool | None = None
+        if self.confirm and direction != "flat":
+            cb = self._cb_hist.get(symbol)
+            if cb and len(cb) >= 2:
+                cb_ret, _ = self._ret_over(cb, self.window_sec, now)
+                if direction == "up":
+                    confirmed = cb_ret > 0
+                else:
+                    confirmed = cb_ret < 0
+
         return LeadSignal(
             symbol=symbol,
             direction=direction,
             ret_pct=ret,
             price=latest_px,
             window_sec=self.window_sec,
-            ts=latest_ts,
-            source=self._active_base or "",
+            ts=hist[-1][0],
+            source=("binance-ws" if self._ws_ok else (self._active_base or "")),
+            vol=vol,
+            threshold=thresh,
+            confirmed=confirmed,
         )
 
     def signal(self, ticker_or_series: str) -> LeadSignal | None:
@@ -207,13 +350,8 @@ class BinanceLeadFeed:
         return None
 
     def agrees(self, ticker_or_series: str, kalshi_side: str,
-               require_lean: bool = False) -> tuple[bool, LeadSignal | None, str]:
-        """Return (ok_to_trade, signal, reason).
-
-        kalshi_side: 'yes' (UP) or 'no' (DOWN).
-        - filter mode (require_lean=False): block only on strong opposite lean
-        - strict mode (require_lean=True): require matching up/down lean
-        """
+               require_lean: bool = False,
+               require_confirm: bool = False) -> tuple[bool, LeadSignal | None, str]:
         sig = self.signal(ticker_or_series)
         if sig is None:
             return True, None, "no_symbol"
@@ -224,9 +362,15 @@ class BinanceLeadFeed:
             if require_lean:
                 return False, sig, "flat_requires_lean"
             return True, sig, "flat_allow"
-        if sig.direction == want:
-            return True, sig, "agree"
-        return False, sig, "disagree"
+        if sig.direction != want:
+            return False, sig, "disagree"
+        if require_confirm or (
+            self.confirm and os.environ.get("COINBASE_CONFIRM_STRICT", "0")
+            .lower() in ("1", "true", "yes", "on")
+        ):
+            if sig.confirmed is False:
+                return False, sig, "coinbase_disagree"
+        return True, sig, "agree" if sig.confirmed is not False else "agree_unconfirmed"
 
     def status_line(self) -> str:
         with self._lock:
@@ -236,12 +380,18 @@ class BinanceLeadFeed:
                 if not sig:
                     parts.append(f"{sym}=n/a")
                 else:
+                    conf = ""
+                    if sig.confirmed is True:
+                        conf = "|cb✓"
+                    elif sig.confirmed is False:
+                        conf = "|cb×"
                     parts.append(
                         f"{sym}:{sig.direction}({sig.ret_pct*100:+.3f}%/"
-                        f"{sig.window_sec:.0f}s @{sig.price:g})"
+                        f"{sig.window_sec:.0f}s thr={sig.threshold*100:.3f}%"
+                        f"{conf} @{sig.price:g})"
                     )
             err = f" err={self._last_error}" if self._last_error else ""
-            src = self._active_base or "?"
+            src = "ws" if self._ws_ok else (self._active_base or "?")
         return f"binance[{src}] " + " ".join(parts) + err
 
 
@@ -250,7 +400,6 @@ def lean_enabled() -> bool:
 
 
 def lean_mode() -> str:
-    """filter (default) | strict | off"""
     return os.environ.get("BINANCE_LEAD_MODE", "filter").lower()
 
 
@@ -258,11 +407,8 @@ if __name__ == "__main__":
     feed = BinanceLeadFeed(symbols=["XRPUSDT", "BNBUSDT", "SOLUSDT"])
     feed.start()
     try:
-        for i in range(8):
+        for _ in range(10):
             time.sleep(2)
             print(feed.status_line())
-            for s in ("KXXRP15M", "KXBNB15M", "KXSOL15M"):
-                sig = feed.signal(s)
-                print(" ", s, sig)
     finally:
         feed.stop()

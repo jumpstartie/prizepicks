@@ -73,6 +73,10 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 # Allow override of risk fraction without editing sizing.py
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
+# Skip favorites that are already too rich (little upside left vs $1 settle)
+SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.965"))
+# Max yes-spread (ask-bid) to enter; wide books = adverse selection
+MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.04"))
 # Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
 BINANCE_LEAD = lean_enabled()
 BINANCE_LEAD_MODE = lean_mode()  # filter | strict | off
@@ -119,6 +123,17 @@ class Position:
     exit_price: float | None = None
     exit_order_id: str = ""
     tp_price: float | None = None  # entry * TAKE_PROFIT_MULT, if reachable (<= cap)
+    # Quant instrumentation
+    signal_mid: float | None = None
+    signal_spread: float | None = None
+    secs_left_at_entry: float | None = None
+    binance_ret: float | None = None
+    binance_dir: str = ""
+    binance_confirmed: bool | None = None
+    risk_frac: float | None = None
+    edge_wr: float | None = None
+    edge_reason: str = ""
+    mark_at_fill: float | None = None
 
 
 @dataclass
@@ -363,20 +378,59 @@ def size_mult_for(ticker: str) -> float:
     return SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
 
 
+def book_spread(m: dict) -> float | None:
+    try:
+        bid = float(m["yes_bid_dollars"]) if m.get("yes_bid_dollars") is not None else None
+        ask = float(m["yes_ask_dollars"]) if m.get("yes_ask_dollars") is not None else None
+    except (TypeError, ValueError):
+        return None
+    if bid is None or ask is None:
+        return None
+    return max(0.0, ask - bid)
+
+
+def mispricing_ok(ticker: str, side: str, entry: float, m: dict) -> tuple[bool, str]:
+    """Quant gates: skip rich favorites / wide spreads unless Binance agrees hard."""
+    if entry >= SKIP_ENTRY_RICH:
+        # Allow only if Binance strongly agrees (early intel confirmed)
+        if _lead_active() and LEAD_FEED is not None:
+            ok, sig, reason = LEAD_FEED.agrees(ticker, side, require_lean=True)
+            if ok and sig and sig.direction != "flat" and sig.confirmed is not False:
+                return True, "rich_but_binance_agree"
+        return False, f"rich_entry>={SKIP_ENTRY_RICH:.3f}"
+    spr = book_spread(m)
+    if spr is not None and spr > MAX_SPREAD:
+        return False, f"wide_spread={spr:.3f}>{MAX_SPREAD:.3f}"
+    return True, "ok"
+
+
 def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if st.halted or sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
         enforce_halt(client, st)
         return
     ticker = m["ticker"]
+    ok_m, why_m = mispricing_ok(ticker, side, entry, m)
+    if not ok_m:
+        log(f"skip {ticker}: mispricing gate ({why_m})")
+        append_trade_log({"event": "skip_mispricing", "ticker": ticker,
+                          "side": side, "entry": entry, "reason": why_m})
+        return
+
     mult = size_mult_for(ticker)
-    unit = sizing.contracts_for_equity(st.equity, entry, size_mult=mult)
+    risk_frac, edge = sizing.effective_risk_fraction(
+        st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
+    )
+    unit = sizing.contracts_for_equity(
+        st.equity, entry, size_mult=mult, risk_frac=risk_frac,
+    )
     if unit <= 0:
         return
     # Already in this market?
     if any(p.ticker == ticker for p in st.open_positions):
         return
     conc_cap = sizing.max_concurrent(
-        st.equity, entry, hard_cap=MAX_CONCURRENT, exposure_frac=MAX_EXPOSURE_FRAC
+        st.equity, entry, hard_cap=MAX_CONCURRENT, exposure_frac=MAX_EXPOSURE_FRAC,
+        risk_frac=risk_frac,
     )
     if len(st.open_positions) >= conc_cap:
         log(f"skip {ticker}: at max concurrent {conc_cap}")
@@ -396,12 +450,21 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     except (TypeError, ValueError):
         last_at = None
     close_ts = parse_ts(m["close_time"])
+    secs_left = close_ts - time.time()
+    mid = mid_of(m)
+    spr = book_spread(m)
+    lead = LEAD_FEED.signal(ticker) if LEAD_FEED is not None else None
     tp = tp_price_for_entry(entry)
     pos = Position(
         ticker=ticker, series=m.get("event_ticker", series_root(ticker)),
         side=side, contracts=unit, entry=entry, cost=cost,
         opened_ts=time.time(), close_ts=close_ts,
         last_at_signal=last_at, tp_price=tp,
+        signal_mid=mid, signal_spread=spr, secs_left_at_entry=secs_left,
+        binance_ret=(lead.ret_pct if lead else None),
+        binance_dir=(lead.direction if lead else ""),
+        binance_confirmed=(lead.confirmed if lead else None),
+        risk_frac=risk_frac, edge_wr=edge.wr, edge_reason=edge.reason,
     )
 
     if st.mode == "live":
@@ -423,6 +486,7 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             pos.filled = True
             pos.contracts = fill
             pos.cost = entry * fill
+            pos.mark_at_fill = mid
             st.cash -= pos.cost
         targets = tp_targets_for_entry(entry)
         if targets:
@@ -431,19 +495,26 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             tp_note = "tp=n/a (no upside to cap)"
         sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
-            f"order_id={pos.order_id} fill={fill}  {tp_note}{sat}")
+            f"order_id={pos.order_id} fill={fill}  {tp_note}{sat}  "
+            f"risk={100*risk_frac:.1f}%({edge.reason}) wr~{100*edge.wr:.1f}% "
+            f"mid={mid} spr={spr} bn={pos.binance_dir}:{None if lead is None else f'{lead.ret_pct*100:+.3f}%'}")
     else:
         targets = tp_targets_for_entry(entry)
         tp_note = ("tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
                    if targets else "tp=n/a")
         sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
-            f"(mid signal, {int(close_ts - time.time())}s to close)  {tp_note}{sat}")
+            f"(mid signal, {int(secs_left)}s to close)  {tp_note}{sat}  "
+            f"risk={100*risk_frac:.1f}%({edge.reason})")
 
     st.positions.append(pos)
     st.signaled.append(ticker)
     st.save()
-    append_trade_log({"event": "signal", "mode": st.mode, **asdict(pos)})
+    append_trade_log({
+        "event": "signal", "mode": st.mode,
+        "edge_ev": edge.ev_per_trade, "edge_kelly": edge.kelly,
+        "edge_n": edge.n, **asdict(pos),
+    })
 
 
 def sync_live_cash(client: KalshiClient, st: State):
@@ -486,9 +557,13 @@ def update_live_fills(client: KalshiClient, st: State):
             p.filled = True
             p.contracts = fill
             p.cost = cost
+            if p.mark_at_fill is None:
+                p.mark_at_fill = p.signal_mid
             sync_live_cash(client, st)
             log(f"LIVE FILL {p.side.upper()} {fill:.2f} @ ~{p.entry:.2f} on {p.ticker} "
-                f"status={status} cash=${st.cash:.2f}")
+                f"status={status} cash=${st.cash:.2f} "
+                f"risk={None if p.risk_frac is None else f'{100*p.risk_frac:.1f}%'} "
+                f"bn={p.binance_dir}")
             append_trade_log({"event": "fill", "mode": "live", "status": status,
                               **asdict(p)})
             st.save()
@@ -721,26 +796,39 @@ def settle_due(client: KalshiClient, st: State):
         else:
             st.cash += payout
         st.closed.append(asdict(p))
+        # Markout vs entry: settle payout/contract - entry (favorites ~ +0.04 to +0.10)
+        markout = (1.0 if won else 0.0) - p.entry
         log(f"SETTLE {p.ticker} {p.side.upper()} {'WIN' if won else 'LOSS'} "
-            f"pnl={pnl:+.4f}  cash=${st.cash:.2f} equity=${st.equity:.2f}")
-        append_trade_log({"event": "settle", "won": won, "pnl": pnl,
-                          "cash": st.cash, "equity": st.equity, **asdict(p)})
+            f"pnl={pnl:+.4f} markout/c={markout:+.3f}  "
+            f"cash=${st.cash:.2f} equity=${st.equity:.2f} "
+            f"risk={None if p.risk_frac is None else f'{100*p.risk_frac:.1f}%'} "
+            f"bn={p.binance_dir}:{None if p.binance_ret is None else f'{p.binance_ret*100:+.3f}%'}")
+        append_trade_log({
+            "event": "settle", "won": won, "pnl": pnl,
+            "markout_per_contract": markout,
+            "cash": st.cash, "equity": st.equity, **asdict(p),
+        })
         st.save()
 
 
 def summary(st: State) -> str:
     closed = [c for c in st.closed if c.get("filled")]
+    rf, edge = sizing.effective_risk_fraction(
+        st.equity, closed=st.closed, floor=HALT_FLOOR,
+    )
+    unit = sizing.contracts_for_equity(st.equity, risk_frac=rf)
     n = len(closed)
     if n == 0:
         return (f"equity=${st.equity:.2f} cash=${st.cash:.2f} "
-                f"open={len(st.open_positions)} closed=0  unit="
-                f"{sizing.contracts_for_equity(st.equity):.2f}")
+                f"open={len(st.open_positions)} closed=0  unit={unit:.2f}  "
+                f"risk={100*rf:.1f}%({edge.reason})")
     wins = sum(1 for c in closed if c.get("result") == 1)
     pnl = sum(c.get("pnl") or 0 for c in closed)
     return (f"equity=${st.equity:.2f} cash=${st.cash:.2f} "
             f"open={len(st.open_positions)} closed={n} "
             f"win%={100*wins/n:.0f} pnl={pnl:+.4f}  "
-            f"unit={sizing.contracts_for_equity(st.equity):.2f}")
+            f"unit={unit:.2f}  risk={100*rf:.1f}%({edge.reason}) "
+            f"edge_wr={100*edge.wr:.1f}% ev=${edge.ev_per_trade:+.3f}")
 
 
 def handle_stop(signum, frame):
@@ -952,7 +1040,7 @@ def main():
             LEAD_FEED.start()
             log(f"binance lead ON mode={BINANCE_LEAD_MODE} symbols={syms} "
                 f"window={LEAD_FEED.window_sec:.0f}s "
-                f"thresh={100*LEAD_FEED.threshold_pct:.3f}%")
+                f"thresh={100*LEAD_FEED.base_threshold:.3f}%")
             # warm up a couple samples so first signals aren't empty
             time.sleep(min(4.0, LEAD_FEED.poll_sec * 2))
             log(LEAD_FEED.status_line())
@@ -967,7 +1055,8 @@ def main():
             st.save()
         log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
     bank = st.cash if st.mode == "live" else st.start_equity
-    log(f"starting MODE={st.mode}  {sizing.describe(bank, floor=HALT_FLOOR)}")
+    log(f"starting MODE={st.mode}  "
+        f"{sizing.describe(bank, floor=HALT_FLOOR, closed=st.closed)}")
     log(f"series={SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
         f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
