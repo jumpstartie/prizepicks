@@ -56,14 +56,13 @@ MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "60"))
 CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
 # Requotes after a post-only-cross rejection
 MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
-# Per-trade take-profit — fire on the first reachable target:
-#   ABS:  mark hits a near-ceiling spike (catches abnormal runs on favorites)
-#   GAIN: mark is up this many dollars from entry (e.g. 0.05 = +5¢)
-#   MULT: mark >= entry * mult (only reachable on cheap entries; binaries cap $1)
+# Per-trade take-profit on top of hold-to-settle favorites:
+#   ABS:  mark hits a near-ceiling spike (main exit; default 0.98)
+#   GAIN: optional mark >= entry + $ (0 = off)
+#   MULT: optional Nx entry (0 = off; not used for 90¢+ favorites)
 TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.98"))
-# Optional +$ gain from entry; 0 = off (abs spike is the main favorite exit)
 TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
-TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "2.0"))
+TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
@@ -188,7 +187,7 @@ def tp_targets_for_entry(entry: float) -> list[tuple[float, str]]:
         gain_px = round(min(entry + TAKE_PROFIT_GAIN, TAKE_PROFIT_CAP), 4)
         if gain_px > entry:
             out.append((gain_px, "gain"))
-    if TAKE_PROFIT_MULT > 1:
+    if TAKE_PROFIT_MULT > 1.0:
         mult_px = round(entry * TAKE_PROFIT_MULT, 4)
         if mult_px <= TAKE_PROFIT_CAP and mult_px > entry:
             out.append((mult_px, "mult"))
@@ -770,8 +769,11 @@ def main():
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
         f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={'OFF' if STOP_LOSS_PCT <= 0 else f'{100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)'}  "
-        f"take_profit=abs≥{TAKE_PROFIT_ABS:.2f}|gain+{TAKE_PROFIT_GAIN:.2f}|"
-        f"{TAKE_PROFIT_MULT:.0f}x (cap {TAKE_PROFIT_CAP:.2f})  "
+        f"take_profit="
+        f"{'abs≥'+format(TAKE_PROFIT_ABS,'.2f') if TAKE_PROFIT_ABS>0 else 'absOFF'}|"
+        f"{'gain+'+format(TAKE_PROFIT_GAIN,'.2f') if TAKE_PROFIT_GAIN>0 else 'gainOFF'}|"
+        f"{(str(int(TAKE_PROFIT_MULT))+'x') if TAKE_PROFIT_MULT>1 else 'multOFF'} "
+        f"(cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")

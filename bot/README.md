@@ -53,9 +53,9 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled (set e.g. `0.20` to enable) |
 | `STOP_DISABLE_SECS` | `60` | if stop enabled, disable in final N seconds |
-| `TAKE_PROFIT_ABS` | `0.98` | exit if mark spikes to this (near-ceiling) |
+| `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this (on top of settle path) |
 | `TAKE_PROFIT_GAIN` | `0` | optional: exit if mark ≥ entry + this ($); 0=off |
-| `TAKE_PROFIT_MULT` | `2.0` | exit if mark ≥ entry × mult (cheap entries) |
+| `TAKE_PROFIT_MULT` | `0` | optional Nx entry; **off** by default |
 | `TAKE_PROFIT_CAP` | `0.99` | max TP price on a $1 binary |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
 | `MAX_CONCURRENT` | `7` | max simultaneous open orders/positions |
@@ -72,5 +72,5 @@ ZEC/HYPE added as secondary). Override `SERIES` only if you accept flat EV.
 ### Stop-loss / take-profit
 
 - **Stop:** **off by default**. Live: every settle was a win; both stops lost money.
-- **Take-profit:** sell into abnormal spikes — **mark ≥ 0.98** (main), or **2×**
-  on cheap entries. Optional `TAKE_PROFIT_GAIN` for +¢ from entry. Else settle.
+- **Take-profit:** spike layer on the settle strategy — sell if **mark ≥ 0.98**.
+  2× / gain multipliers are **off**. No spike → hold to settlement.
