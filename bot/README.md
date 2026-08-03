@@ -53,4 +53,9 @@ Use `KALSHI_DEMO=1` against the demo environment first if you want.
 | `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M` | comma-separated series |
 | `WINDOW_SEC` | `180` | signal window before close |
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
+| `STOP_LOSS_PCT` | `0.20` | exit if mark falls this fraction under entry |
 | `POLL_SEC` | `5` | market poll interval |
+
+### Stop-loss
+
+After a fill, if our side's mark drops **20% below entry** (e.g. bought at 95¢ → stop at 76¢), the bot exits immediately with an IOC reduce-only order instead of holding to settlement.
