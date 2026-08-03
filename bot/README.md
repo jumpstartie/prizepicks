@@ -49,6 +49,8 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 | `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
 | `STOP_LOSS_PCT` | `0.20` | exit if mark falls this fraction under entry |
 | `STOP_DISABLE_SECS` | `60` | disable stop in final N seconds (hold to settle) |
+| `TAKE_PROFIT_MULT` | `3.0` | exit if mark ≥ entry × mult (per trade) |
+| `TAKE_PROFIT_CAP` | `0.99` | max TP price on a $1 binary |
 | `MAX_REQUOTES` | `3` | post-only-cross requote attempts |
 | `POLL_SEC` | `5` | market poll interval |
 
@@ -58,8 +60,9 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 books are too efficient. Edge concentrates in thinner alt books (BNB/SOL/XRP;
 ZEC/HYPE added as secondary). Override `SERIES` only if you accept flat EV.
 
-### Stop-loss
+### Stop-loss / take-profit
 
-After a fill, if our side's mark drops **20% below entry** (e.g. 95¢ → 76¢),
-exit via IOC reduce-only — **unless** fewer than 60s remain, in which case
-hold to settlement (favorites wick hard near expiry).
+- **Stop:** mark drops **20% below entry** → IOC exit (disabled in final 60s).
+- **Take-profit:** mark reaches **3× entry** → IOC exit. On a $0–$1 binary that
+  only fires when entry ≤ 33¢. Our 90–97¢ favorites settle at $1 (~1.05–1.1×),
+  so TP is n/a on those trades and we hold to settlement instead.

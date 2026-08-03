@@ -50,6 +50,10 @@ MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "60"))
 CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
 # Requotes after a post-only-cross rejection
 MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
+# Per-trade take-profit: exit when mark >= entry * mult (binaries cap at $1,
+# so this only fires when entry <= 1/mult, e.g. entry <= 33¢ for 3x).
+TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "3.0"))
+TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",
@@ -88,9 +92,10 @@ class Position:
     result: int | None = None  # 1 if our side won
     pnl: float | None = None
     last_at_signal: float | None = None  # for paper fill de-dupe
-    exit_reason: str = ""  # "" | "settle" | "stop"
+    exit_reason: str = ""  # "" | "settle" | "stop" | "take_profit"
     exit_price: float | None = None
     exit_order_id: str = ""
+    tp_price: float | None = None  # entry * TAKE_PROFIT_MULT, if reachable (<= cap)
 
 
 @dataclass
@@ -131,13 +136,25 @@ class State:
             d = json.loads(STATE_PATH.read_text())
             st = cls(start_equity=d["start_equity"], cash=d["cash"], mode=d["mode"],
                      signaled=d.get("signaled", []), closed=d.get("closed", []))
-            st.positions = [Position(**p) for p in d.get("positions", [])]
+            fields = set(Position.__dataclass_fields__)
+            st.positions = [
+                Position(**{k: v for k, v in p.items() if k in fields})
+                for p in d.get("positions", [])
+            ]
             log(f"resumed state equity=${st.equity:.2f} cash=${st.cash:.2f} "
                 f"open={len(st.open_positions)} closed={len(st.closed)}")
             return st
         st = cls(start_equity=start, cash=start, mode=mode)
         st.save()
         return st
+
+
+def tp_price_for_entry(entry: float) -> float | None:
+    """Return take-profit mark if 3x entry is attainable on a $0–$1 binary."""
+    raw = entry * TAKE_PROFIT_MULT
+    if raw > TAKE_PROFIT_CAP:
+        return None  # unreachable (typical for 90c+ favorites)
+    return round(raw, 4)
 
 
 def mid_of(m: dict) -> float | None:
@@ -274,11 +291,12 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     except (TypeError, ValueError):
         last_at = None
     close_ts = parse_ts(m["close_time"])
+    tp = tp_price_for_entry(entry)
     pos = Position(
         ticker=ticker, series=m.get("event_ticker", ticker.split("-")[0]),
         side=side, contracts=unit, entry=entry, cost=cost,
         opened_ts=time.time(), close_ts=close_ts,
-        last_at_signal=last_at,
+        last_at_signal=last_at, tp_price=tp,
     )
 
     if st.mode == "live":
@@ -301,11 +319,13 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             pos.contracts = fill
             pos.cost = entry * fill
             st.cash -= pos.cost
+        tp_note = f"tp={tp:.2f}" if tp is not None else f"tp=n/a (need entry≤{TAKE_PROFIT_CAP/TAKE_PROFIT_MULT:.2f} for {TAKE_PROFIT_MULT:.0f}x)"
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
-            f"order_id={pos.order_id} fill={fill}")
+            f"order_id={pos.order_id} fill={fill}  {tp_note}")
     else:
+        tp_note = f"tp={tp:.2f}" if tp is not None else "tp=n/a"
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
-            f"(mid signal, {int(close_ts - time.time())}s to close)")
+            f"(mid signal, {int(close_ts - time.time())}s to close)  {tp_note}")
 
     st.positions.append(pos)
     st.signaled.append(ticker)
@@ -440,22 +460,23 @@ def stop_triggered(entry: float, mark: float) -> bool:
     return mark <= entry * (1.0 - STOP_LOSS_PCT)
 
 
-def close_position_stop(client: KalshiClient, st: State, p: Position, m: dict, mark: float):
-    """Flatten a filled position after stop-loss. Live: IOC reduce-only. Paper: mark fill."""
+def close_position_exit(client: KalshiClient, st: State, p: Position, mark: float,
+                        reason: str):
+    """Flatten a filled position (stop or take-profit). Live: IOC reduce-only."""
     if p.settled or not p.filled:
         return
     exit_px = mark
+    label = "STOP" if reason == "stop" else "TAKE PROFIT"
     if st.mode == "live":
         try:
             if p.side == "yes":
-                # dump YES into the bid
+                # For TP, sell into bid aggressively; for stop same
                 resp = client.create_order(
                     p.ticker, "ask", p.contracts, 0.01,
                     post_only=False, time_in_force="immediate_or_cancel",
                     reduce_only=True,
                 )
             else:
-                # cover NO by buying YES through the ask
                 resp = client.create_order(
                     p.ticker, "bid", p.contracts, 0.99,
                     post_only=False, time_in_force="immediate_or_cancel",
@@ -466,14 +487,13 @@ def close_position_stop(client: KalshiClient, st: State, p: Position, m: dict, m
             avg = resp.get("average_fill_price")
             if avg is not None:
                 avg_f = float(avg)
-                # average_fill_price is YES price; convert to our side
                 exit_px = avg_f if p.side == "yes" else (1.0 - avg_f)
             if fill <= 0:
-                log(f"STOP IOC no fill {p.ticker} — will retry next poll")
+                log(f"{label} IOC no fill {p.ticker} — will retry next poll")
                 return
             p.contracts = fill
         except Exception as e:
-            log(f"STOP exit failed {p.ticker}: {e}")
+            log(f"{label} exit failed {p.ticker}: {e}")
             return
         sync_live_cash(client, st)
     else:
@@ -484,28 +504,27 @@ def close_position_stop(client: KalshiClient, st: State, p: Position, m: dict, m
         sync_live_cash(client, st)
 
     p.exit_price = exit_px
-    p.exit_reason = "stop"
+    p.exit_reason = reason
     p.pnl = pnl
     p.result = 1 if pnl > 0 else 0
     p.settled = True
     st.closed.append(asdict(p))
-    log(f"STOP {p.ticker} {p.side.upper()} entry={p.entry:.2f} mark={mark:.2f} "
-        f"(-{100*STOP_LOSS_PCT:.0f}%) exit~{exit_px:.2f} pnl={pnl:+.4f} "
-        f"cash=${st.cash:.2f}")
-    append_trade_log({"event": "stop", "mark": mark, "exit_price": exit_px,
+    log(f"{label} {p.ticker} {p.side.upper()} entry={p.entry:.2f} mark={mark:.2f} "
+        f"exit~{exit_px:.2f} pnl={pnl:+.4f} cash=${st.cash:.2f}")
+    append_trade_log({"event": reason, "mark": mark, "exit_price": exit_px,
                       "pnl": pnl, "cash": st.cash, **asdict(p)})
     st.save()
 
 
-def check_stops(client: KalshiClient, st: State, markets_by_ticker: dict):
+def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
+    """Stop-loss and per-trade take-profit (3x entry when attainable)."""
     now = time.time()
     for p in list(st.open_positions):
         if not p.filled or p.settled:
             continue
-        # never stop after close (book marks go junk) or in the final minute
         secs_left = p.close_ts - now
-        if secs_left <= STOP_DISABLE_SECS:
-            continue
+        if secs_left <= 0:
+            continue  # book marks unreliable after close
         m = markets_by_ticker.get(p.ticker)
         if not m:
             try:
@@ -515,10 +534,22 @@ def check_stops(client: KalshiClient, st: State, markets_by_ticker: dict):
         mark = side_mark(m, p.side)
         if mark is None:
             continue
+
+        # Take-profit first: 3x entry (only if tp_price was attainable at entry)
+        tp = p.tp_price if p.tp_price is not None else tp_price_for_entry(p.entry)
+        if tp is not None and mark >= tp:
+            log(f"tp trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
+                f"target={tp:.2f} ({TAKE_PROFIT_MULT:.0f}x)")
+            close_position_exit(client, st, p, mark, "take_profit")
+            continue
+
+        # Stop-loss: disabled in final STOP_DISABLE_SECS
+        if secs_left <= STOP_DISABLE_SECS:
+            continue
         if stop_triggered(p.entry, mark):
             log(f"stop trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
                 f"threshold={p.entry * (1 - STOP_LOSS_PCT):.2f}")
-            close_position_stop(client, st, p, m, mark)
+            close_position_exit(client, st, p, mark, "stop")
 
 
 def settle_due(client: KalshiClient, st: State):
@@ -625,7 +656,8 @@ def main():
     log(f"starting MODE={st.mode}  {sizing.describe(st.cash if st.mode == 'live' else st.start_equity)}")
     log(f"series={SERIES}  window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  price=[{PRICE_LO},{PRICE_HI})  "
-        f"stop_loss={100*STOP_LOSS_PCT:.0f}% (disabled last {STOP_DISABLE_SECS}s)")
+        f"stop_loss={100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)  "
+        f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})")
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
@@ -698,7 +730,7 @@ def main():
                 if t not in seen_tickers:
                     pending.pop(t, None)
 
-            check_stops(client, st, markets_by_ticker)
+            check_exits(client, st, markets_by_ticker)
 
             if now - last_summary > 60:
                 if st.mode == "live":
