@@ -34,31 +34,33 @@ from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_fo
 # (HYPE/ZEC stops were the only live losses; BTC/DOGE/ETH were flat in backtest.)
 SERIES = [
     s.strip() for s in os.environ.get(
-        "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M"
+        "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M,KXETH15M"
     ).split(",") if s.strip()
 ]
 # Optional half-size satellites (also scanned for signals)
 SATELLITE_SERIES = set(
-    s.strip() for s in os.environ.get("SATELLITE_SERIES", "").split(",") if s.strip()
+    s.strip()
+    for s in os.environ.get("SATELLITE_SERIES", "KXBTC15M,KXDOGE15M").split(",")
+    if s.strip()
 )
 SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
 # Markets we actually poll = core + satellites
 ALL_SERIES = list(dict.fromkeys(SERIES + sorted(SATELLITE_SERIES)))
 START_EQUITY = float(os.environ.get("START_EQUITY", "20"))
 MODE = os.environ.get("MODE", "paper").lower()  # paper | live
-POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
-# Frequency-first band: catch favorites before they lock at 99¢.
-# Research sweet-spot was 90–97; we widen slightly for more fills.
-PRICE_LO = float(os.environ.get("PRICE_LO", "0.88"))
-PRICE_HI = float(os.environ.get("PRICE_HI", "0.985"))
+POLL_SEC = float(os.environ.get("POLL_SEC", "3"))
+# High-frequency band: trade any clear favorite for most of the 15m window.
+# Research sweet-spot was 90–97; this prioritizes fill rate over edge purity.
+PRICE_LO = float(os.environ.get("PRICE_LO", "0.70"))
+PRICE_HI = float(os.environ.get("PRICE_HI", "0.999"))
 # 0 = disabled. Live data: settle exits +EV, stop exits wiped the edge.
 STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0"))
 # Do not stop-loss in the final N seconds — hold to settlement (favorites wick).
 STOP_DISABLE_SECS = int(os.environ.get("STOP_DISABLE_SECS", "60"))
-# Signal window: last N seconds before close (earlier = more chances before 99¢ lock)
-WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "480"))
-# Require at least this much time left to enter (blocks last-second flip chases)
-MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "30"))
+# Almost the full 15m candle (leave a little buffer after open)
+WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "840"))
+# Require at least this much time left to enter
+MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "15"))
 # Require the favorite band on the same side for this many consecutive polls
 CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "1"))
 # Requotes after a post-only-cross rejection
@@ -67,7 +69,8 @@ MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 #   ABS:  mark hits a near-ceiling spike (main exit; default 0.98)
 #   GAIN: optional mark >= entry + $ (0 = off)
 #   MULT: optional Nx entry (0 = off; not used for 90¢+ favorites)
-TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.98"))
+# Near-ceiling spike exit; with rich entries this rarely beats settle
+TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.995"))
 TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
@@ -79,10 +82,10 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 # Allow override of risk fraction without editing sizing.py
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
-# Skip favorites that are already too rich (little upside left vs $1 settle)
-SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.985"))
+# Skip only absurd locked books (set 1.0 to never skip on richness)
+SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.999"))
 # Max yes-spread (ask-bid) to enter; wide books = adverse selection
-MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.06"))
+MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.20"))
 # Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
 BINANCE_LEAD = lean_enabled()
 BINANCE_LEAD_MODE = lean_mode()  # filter | strict | off
