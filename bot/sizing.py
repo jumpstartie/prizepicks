@@ -19,9 +19,9 @@ AVG_WIN_PAYOFF = 1.0 - AVG_ENTRY  # ~0.07
 LOSS_PER_CONTRACT = AVG_ENTRY     # lose the entry price on a loser
 WIN_RATE = 0.95
 
-# Risk controls for a $20 test account
-RISK_FRACTION = 0.10              # ~$2/trade on a $20 book; still below half-Kelly
-MAX_EXPOSURE_FRAC = 0.50          # max capital locked across concurrent positions
+# Risk controls for a ~$20 test account (profit-first sizing)
+RISK_FRACTION = 0.20              # ~$4/trade on a $21 book (user $3–5 band)
+MAX_EXPOSURE_FRAC = 0.60          # allow ~2–3 concurrent at the larger unit
 MAX_CONCURRENT = 7                # hard cap: one open order/position per series
 HALT_EQUITY_FRAC = 0.50           # stop trading if equity falls to 50% of start
 HALT_FLOOR_DOLLARS = 15.0         # absolute floor (overnight loss cap for ~$20 start)

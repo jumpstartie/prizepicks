@@ -5,14 +5,15 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ## $20 test sizing
 
 ```
-bankroll=$20.00  unit≈2.15 contracts/trade
-risk/trade≈$2.00 (10% of bankroll)
-max concurrent=3 core books
+bankroll≈$21  unit≈4.5 contracts/trade
+risk/trade≈$4.00 (~20% of bankroll; $3–5 band)
+max concurrent≈2–3 core books
 halt if equity <= $15.00
+stop-loss OFF — hold favorites to settlement; log W/L and iterate
 ```
 
-~10% of equity per trade (still below half-Kelly). Unit auto-resizes as equity
-changes. Override with `RISK_FRACTION=0.05` for the smaller size.
+~20% of equity per trade (~$4 on a $21 book). Unit auto-resizes as equity
+changes. Override with `RISK_FRACTION=0.15` (~$3) or `0.25` (~$5).
 
 ## Run paper (no API keys)
 
