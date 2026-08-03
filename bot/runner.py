@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
 from bot import sizing
+from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
 
 # Profit-first defaults from live + 31d research: core favorites only, hold to settle.
 # (HYPE/ZEC stops were the only live losses; BTC/DOGE/ETH were flat in backtest.)
@@ -72,6 +73,9 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 # Allow override of risk fraction without editing sizing.py
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
+# Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
+BINANCE_LEAD = lean_enabled()
+BINANCE_LEAD_MODE = lean_mode()  # filter | strict | off
 STATE_PATH = Path(os.environ.get(
     "STATE_PATH",
     "bot/state_live.json" if MODE == "live" else "bot/state.json",
@@ -82,6 +86,7 @@ LOG_PATH = Path(os.environ.get(
 ))
 
 RUNNING = True
+LEAD_FEED: BinanceLeadFeed | None = None
 
 
 def log(msg: str):
@@ -744,7 +749,137 @@ def handle_stop(signum, frame):
     log("shutting down...")
 
 
+def _lead_active() -> bool:
+    return bool(
+        BINANCE_LEAD
+        and LEAD_FEED is not None
+        and BINANCE_LEAD_MODE not in ("off", "0", "false")
+    )
+
+
+def binance_allows(ticker: str, side: str) -> bool:
+    """Apply Binance lead filter to a Kalshi favorite signal.
+
+    filter: block only when Binance has a strong opposite lean
+    strict: require Binance lean to match Kalshi side (yes=up, no=down)
+    off / disabled: always allow
+    """
+    if not _lead_active() or symbol_for(ticker) is None:
+        return True
+    require = BINANCE_LEAD_MODE == "strict"
+    ok, sig, reason = LEAD_FEED.agrees(ticker, side, require_lean=require)
+    if sig is None:
+        return True
+    detail = (f"{sig.symbol} {sig.direction} {sig.ret_pct*100:+.3f}%/"
+              f"{sig.window_sec:.0f}s @{sig.price:g}")
+    if ok:
+        if reason == "agree":
+            log(f"binance LEAN {ticker} {side} ← {detail}")
+        return True
+    log(f"binance BLOCK {ticker} {side} ← {detail} ({reason})")
+    append_trade_log({
+        "event": "binance_block",
+        "ticker": ticker,
+        "side": side,
+        "reason": reason,
+        "symbol": sig.symbol,
+        "direction": sig.direction,
+        "ret_pct": sig.ret_pct,
+        "price": sig.price,
+        "window_sec": sig.window_sec,
+        "source": sig.source,
+    })
+    return False
+
+
+def sync_lead_symbols(st: State) -> None:
+    """Track Binance symbols for every configured series + open position."""
+    if LEAD_FEED is None:
+        return
+    wanted: set[str] = set()
+    for series in SERIES:
+        sym = symbol_for(series.strip())
+        if sym:
+            wanted.add(sym)
+    for p in st.open_positions:
+        sym = symbol_for(p.ticker)
+        if sym:
+            wanted.add(sym)
+    added = LEAD_FEED.ensure_symbols(wanted)
+    if added:
+        log(f"binance lead added symbols={added}")
+
+
+def binance_manage_opens(client: KalshiClient, st: State) -> None:
+    """Use Binance lean on live opens for all bot markets.
+
+    - Unfilled resting orders: cancel if Binance strongly opposes our side
+      (stale favorite after an underlying flip).
+    - Filled positions: log when Binance agrees/disagrees (info only; we still
+      hold to settle / spike TP — no stop-loss).
+    """
+    if not _lead_active():
+        return
+    sync_lead_symbols(st)
+    require = BINANCE_LEAD_MODE == "strict"
+    for p in list(st.open_positions):
+        if symbol_for(p.ticker) is None:
+            continue
+        ok, sig, reason = LEAD_FEED.agrees(p.ticker, p.side, require_lean=require)
+        if sig is None or sig.price <= 0:
+            continue
+        detail = (f"{sig.symbol} {sig.direction} {sig.ret_pct*100:+.3f}%/"
+                  f"{sig.window_sec:.0f}s @{sig.price:g}")
+
+        # Cancel unfilled rests that Binance now opposes
+        if not p.filled and p.order_id and reason == "disagree":
+            log(f"binance CANCEL resting {p.ticker} {p.side} ← {detail}")
+            if st.mode == "live":
+                try:
+                    client.cancel_order(p.order_id, market_ticker=p.ticker)
+                except Exception as e:
+                    log(f"binance cancel failed {p.ticker}: {e}")
+                    continue
+            p.settled = True
+            p.pnl = 0.0
+            p.exit_reason = "binance_cancel"
+            st.closed.append(asdict(p))
+            # allow a fresh signal later in the window if lean flips back
+            if p.ticker in st.signaled:
+                try:
+                    st.signaled.remove(p.ticker)
+                except ValueError:
+                    pass
+            st.save()
+            append_trade_log({
+                "event": "binance_cancel",
+                "ticker": p.ticker,
+                "side": p.side,
+                "reason": reason,
+                "symbol": sig.symbol,
+                "direction": sig.direction,
+                "ret_pct": sig.ret_pct,
+                "price": sig.price,
+                "mode": st.mode,
+            })
+            continue
+
+        # Filled: surface lean vs position (throttled)
+        if p.filled and reason in ("agree", "disagree"):
+            now = time.time()
+            note_key = f"{p.ticker}:{p.side}:{reason}"
+            last = _BINANCE_NOTE_TS.get(note_key, 0.0)
+            if now - last >= 30:
+                _BINANCE_NOTE_TS[note_key] = now
+                tag = "CONFIRM" if reason == "agree" else "WARN"
+                log(f"binance {tag} open {p.ticker} {p.side} ← {detail}")
+
+
+_BINANCE_NOTE_TS: dict[str, float] = {}
+
+
 def main():
+    global LEAD_FEED
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
@@ -754,6 +889,23 @@ def main():
         log("MODE=live but no API keys set. Export KALSHI_API_KEY_ID and "
             "KALSHI_PRIVATE_KEY or KALSHI_PRIVATE_KEY_PATH. Aborting.")
         sys.exit(1)
+
+    if BINANCE_LEAD and BINANCE_LEAD_MODE not in ("off", "0", "false"):
+        syms = sorted({
+            s for series in SERIES
+            if (s := symbol_for(series.strip()))
+        })
+        if syms:
+            LEAD_FEED = BinanceLeadFeed(symbols=syms)
+            LEAD_FEED.start()
+            log(f"binance lead ON mode={BINANCE_LEAD_MODE} symbols={syms} "
+                f"window={LEAD_FEED.window_sec:.0f}s "
+                f"thresh={100*LEAD_FEED.threshold_pct:.3f}%")
+            # warm up a couple samples so first signals aren't empty
+            time.sleep(min(4.0, LEAD_FEED.poll_sec * 2))
+            log(LEAD_FEED.status_line())
+        else:
+            log("binance lead enabled but no mapped series symbols")
 
     st = State.load_or_new(START_EQUITY, MODE)
     if st.mode == "live":
@@ -774,97 +926,109 @@ def main():
         f"{'gain+'+format(TAKE_PROFIT_GAIN,'.2f') if TAKE_PROFIT_GAIN>0 else 'gainOFF'}|"
         f"{(str(int(TAKE_PROFIT_MULT))+'x') if TAKE_PROFIT_MULT>1 else 'multOFF'} "
         f"(cap {TAKE_PROFIT_CAP:.2f})  "
-        f"halt_floor=${HALT_FLOOR:.2f}")
+        f"halt_floor=${HALT_FLOOR:.2f}  "
+        f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
-    while RUNNING:
-        try:
-            if st.mode == "live":
-                update_live_fills(client, st)
-                sync_live_cash(client, st)
-            enforce_halt(client, st)
-            settle_due(client, st)
-            now = time.time()
-            markets_by_ticker: dict[str, dict] = {}
-            seen_tickers: set[str] = set()
-            for series in SERIES:
-                try:
-                    markets = client.open_markets(series)
-                except Exception as e:
-                    log(f"open_markets {series}: {e}")
-                    continue
-                for m in markets:
-                    ticker = m["ticker"]
-                    seen_tickers.add(ticker)
-                    close_ts = parse_ts(m["close_time"])
-                    secs_left = close_ts - now
-
-                    try:
-                        m = client.market(ticker)
-                    except Exception:
-                        pass
-                    markets_by_ticker[ticker] = m
-
-                    if st.mode == "paper":
-                        update_paper_fills(st, m)
-
-                    if st.halted:
-                        pending.pop(ticker, None)
-                        continue
-                    if ticker in st.signaled:
-                        pending.pop(ticker, None)
-                        continue
-                    if secs_left <= 0 or secs_left > WINDOW_SEC:
-                        pending.pop(ticker, None)
-                        continue
-                    if secs_left < MIN_SECS_LEFT:
-                        pending.pop(ticker, None)
-                        continue
-
-                    mid = mid_of(m)
-                    if mid is None:
-                        continue
-                    sig = signal_side(m, mid)
-                    if sig is None:
-                        pending.pop(ticker, None)
-                        continue
-                    side, entry = sig
-                    hit = pending.get(ticker)
-                    if hit is None or hit["side"] != side:
-                        pending[ticker] = {"side": side, "hits": 1, "entry": entry}
-                        log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
-                            f"(1/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
-                        continue
-                    hit["hits"] += 1
-                    hit["entry"] = entry
-                    if hit["hits"] < CONFIRM_POLLS:
-                        log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
-                            f"({hit['hits']}/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
-                        continue
-                    log(f"signal confirmed {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
-                        f"({secs_left:.0f}s left)")
-                    pending.pop(ticker, None)
-                    try_open(client, st, m, side, entry)
-
-            # drop pending for markets that disappeared
-            for t in list(pending):
-                if t not in seen_tickers:
-                    pending.pop(t, None)
-
-            check_exits(client, st, markets_by_ticker)
-
-            if now - last_summary > 60:
+    try:
+        while RUNNING:
+            try:
                 if st.mode == "live":
+                    update_live_fills(client, st)
                     sync_live_cash(client, st)
-                halt_tag = "  HALTED" if st.halted else ""
-                log(summary(st) + halt_tag)
-                last_summary = now
-        except Exception as e:
-            log(f"loop error: {e}")
-        time.sleep(POLL_SEC)
+                binance_manage_opens(client, st)
+                enforce_halt(client, st)
+                settle_due(client, st)
+                now = time.time()
+                markets_by_ticker: dict[str, dict] = {}
+                seen_tickers: set[str] = set()
+                for series in SERIES:
+                    try:
+                        markets = client.open_markets(series)
+                    except Exception as e:
+                        log(f"open_markets {series}: {e}")
+                        continue
+                    for m in markets:
+                        ticker = m["ticker"]
+                        seen_tickers.add(ticker)
+                        close_ts = parse_ts(m["close_time"])
+                        secs_left = close_ts - now
+
+                        try:
+                            m = client.market(ticker)
+                        except Exception:
+                            pass
+                        markets_by_ticker[ticker] = m
+
+                        if st.mode == "paper":
+                            update_paper_fills(st, m)
+
+                        if st.halted:
+                            pending.pop(ticker, None)
+                            continue
+                        if ticker in st.signaled:
+                            pending.pop(ticker, None)
+                            continue
+                        if secs_left <= 0 or secs_left > WINDOW_SEC:
+                            pending.pop(ticker, None)
+                            continue
+                        if secs_left < MIN_SECS_LEFT:
+                            pending.pop(ticker, None)
+                            continue
+
+                        mid = mid_of(m)
+                        if mid is None:
+                            continue
+                        sig = signal_side(m, mid)
+                        if sig is None:
+                            pending.pop(ticker, None)
+                            continue
+                        side, entry = sig
+                        hit = pending.get(ticker)
+                        if hit is None or hit["side"] != side:
+                            pending[ticker] = {"side": side, "hits": 1, "entry": entry}
+                            log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                                f"(1/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
+                            continue
+                        hit["hits"] += 1
+                        hit["entry"] = entry
+                        if hit["hits"] < CONFIRM_POLLS:
+                            log(f"signal pending {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                                f"({hit['hits']}/{CONFIRM_POLLS}, {secs_left:.0f}s left)")
+                            continue
+                        log(f"signal confirmed {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
+                            f"({secs_left:.0f}s left)")
+                        if not binance_allows(ticker, side):
+                            # Keep pending so a later agreeing lean can still fire
+                            # within the window; do not mark signaled.
+                            continue
+                        pending.pop(ticker, None)
+                        try_open(client, st, m, side, entry)
+
+                # drop pending for markets that disappeared
+                for t in list(pending):
+                    if t not in seen_tickers:
+                        pending.pop(t, None)
+
+                check_exits(client, st, markets_by_ticker)
+
+                if now - last_summary > 60:
+                    if st.mode == "live":
+                        sync_live_cash(client, st)
+                    halt_tag = "  HALTED" if st.halted else ""
+                    log(summary(st) + halt_tag)
+                    if LEAD_FEED is not None:
+                        log(LEAD_FEED.status_line())
+                    last_summary = now
+            except Exception as e:
+                log(f"loop error: {e}")
+            time.sleep(POLL_SEC)
+    finally:
+        if LEAD_FEED is not None:
+            LEAD_FEED.stop()
 
     st.save()
     log(f"stopped. {summary(st)}")

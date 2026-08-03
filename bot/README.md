@@ -62,6 +62,30 @@ START_EQUITY=20 MODE=live python3 bot/runner.py
 | `MAX_EXPOSURE_FRAC` | `0.50` | max fraction of equity committed at once |
 | `MAX_REQUOTES` | `3` | post-only-cross requote attempts |
 | `POLL_SEC` | `5` | market poll interval |
+| `BINANCE_LEAD` | `1` | use Binance spot to lean/filter Kalshi side |
+| `BINANCE_LEAD_MODE` | `filter` | `filter` (block opposite), `strict` (require agree), `off` |
+| `BINANCE_LEAD_WINDOW_SEC` | `20` | lookback window for Binance return |
+| `BINANCE_LEAD_PCT` | `0.0008` | min \|return\| to count as up/down lean (~0.08%) |
+| `BINANCE_API_BASE` | `https://data-api.binance.vision` | Binance REST base (fallbacks built-in) |
+
+### Binance → Kalshi direction lean (all bot markets)
+
+Background poller reads Binance spot for **every series the bot trades**
+(currently `BNBUSDT`, `SOLUSDT`, `XRPUSDT`; also maps BTC/ETH/DOGE if added).
+Public REST only — no Binance key. Over the last ~20s it classifies
+**up / down / flat**.
+
+Uses that lean on **entries and open positions**:
+- Kalshi **YES** = underlying UP; Kalshi **NO** = underlying DOWN
+- **filter** (default): skip new favorites when Binance has a **strong opposite** lean
+- **strict**: only enter when Binance lean matches the Kalshi side
+- **Unfilled rests:** cancel if Binance flips strongly against the order
+- **Filled positions:** log CONFIRM/WARN vs Binance (still hold to settle / spike TP)
+- Events: `binance_block`, `binance_cancel` in the trade jsonl; status each minute
+
+```bash
+python3 bot/binance_lead.py   # smoke-test the feed alone
+```
 
 ### Why not BTC?
 
