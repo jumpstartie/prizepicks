@@ -123,20 +123,23 @@ class KalshiClient:
 
     def create_order(self, ticker: str, side: str, count: float, price: float,
                      post_only: bool = True, client_order_id: Optional[str] = None,
-                     expiration_ts: Optional[int] = None) -> dict:
+                     expiration_ts: Optional[int] = None,
+                     time_in_force: str = "good_till_canceled",
+                     reduce_only: bool = False) -> dict:
         """V2 create order. side is 'bid' (buy YES) or 'ask' (sell YES / buy NO)."""
         body = {
             "ticker": ticker,
             "side": side,
             "count": f"{count:.2f}",
             "price": f"{price:.4f}",
-            "time_in_force": "good_till_canceled",
+            "time_in_force": time_in_force,
             "self_trade_prevention_type": "taker_at_cross",
             "post_only": post_only,
+            "reduce_only": reduce_only,
             "client_order_id": client_order_id or str(uuid.uuid4()),
             "exchange_index": -1,
         }
-        if expiration_ts:
+        if expiration_ts and time_in_force == "good_till_canceled":
             body["expiration_time"] = int(expiration_ts)
         return self._request("POST", self.trade_base, "/portfolio/events/orders",
                              body=body, auth=True)

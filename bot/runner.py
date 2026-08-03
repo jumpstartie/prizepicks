@@ -36,6 +36,8 @@ MODE = os.environ.get("MODE", "paper").lower()  # paper | live
 POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
 PRICE_LO = float(os.environ.get("PRICE_LO", "0.90"))
 PRICE_HI = float(os.environ.get("PRICE_HI", "0.97"))
+# Exit if our side's mark falls this fraction below entry (0.20 = 20%)
+STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0.20"))
 # Signal window: last N seconds before close
 WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "180"))
 STATE_PATH = Path(os.environ.get(
@@ -76,6 +78,9 @@ class Position:
     result: int | None = None  # 1 if our side won
     pnl: float | None = None
     last_at_signal: float | None = None  # for paper fill de-dupe
+    exit_reason: str = ""  # "" | "settle" | "stop"
+    exit_price: float | None = None
+    exit_order_id: str = ""
 
 
 @dataclass
@@ -341,6 +346,109 @@ def update_paper_fills(st: State, mkt: dict):
             st.save()
 
 
+def side_mark(m: dict, side: str) -> float | None:
+    """Mark price of our side from the YES book (bid for long YES, 1-ask for long NO)."""
+    try:
+        bid = float(m["yes_bid_dollars"]) if m.get("yes_bid_dollars") is not None else None
+        ask = float(m["yes_ask_dollars"]) if m.get("yes_ask_dollars") is not None else None
+        last = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
+    except (TypeError, ValueError):
+        return None
+    if side == "yes":
+        # what we could sell YES for now
+        if bid is not None:
+            return bid
+        if last is not None:
+            return last
+    else:
+        # NO mark = 1 - yes ask (what we'd pay to buy YES / receive selling NO)
+        if ask is not None:
+            return 1.0 - ask
+        if last is not None:
+            return 1.0 - last
+    return None
+
+
+def stop_triggered(entry: float, mark: float) -> bool:
+    return mark <= entry * (1.0 - STOP_LOSS_PCT)
+
+
+def close_position_stop(client: KalshiClient, st: State, p: Position, m: dict, mark: float):
+    """Flatten a filled position after stop-loss. Live: IOC reduce-only. Paper: mark fill."""
+    if p.settled or not p.filled:
+        return
+    exit_px = mark
+    if st.mode == "live":
+        try:
+            if p.side == "yes":
+                # dump YES into the bid
+                resp = client.create_order(
+                    p.ticker, "ask", p.contracts, 0.01,
+                    post_only=False, time_in_force="immediate_or_cancel",
+                    reduce_only=True,
+                )
+            else:
+                # cover NO by buying YES through the ask
+                resp = client.create_order(
+                    p.ticker, "bid", p.contracts, 0.99,
+                    post_only=False, time_in_force="immediate_or_cancel",
+                    reduce_only=True,
+                )
+            p.exit_order_id = resp.get("order_id", "")
+            fill = float(resp.get("fill_count", "0") or 0)
+            avg = resp.get("average_fill_price")
+            if avg is not None:
+                avg_f = float(avg)
+                # average_fill_price is YES price; convert to our side
+                exit_px = avg_f if p.side == "yes" else (1.0 - avg_f)
+            if fill <= 0:
+                log(f"STOP IOC no fill {p.ticker} — will retry next poll")
+                return
+            p.contracts = fill
+        except Exception as e:
+            log(f"STOP exit failed {p.ticker}: {e}")
+            return
+        sync_live_cash(client, st)
+    else:
+        st.cash += exit_px * p.contracts
+
+    pnl = exit_px * p.contracts - p.cost
+    if st.mode == "live":
+        sync_live_cash(client, st)
+
+    p.exit_price = exit_px
+    p.exit_reason = "stop"
+    p.pnl = pnl
+    p.result = 1 if pnl > 0 else 0
+    p.settled = True
+    st.closed.append(asdict(p))
+    log(f"STOP {p.ticker} {p.side.upper()} entry={p.entry:.2f} mark={mark:.2f} "
+        f"(-{100*STOP_LOSS_PCT:.0f}%) exit~{exit_px:.2f} pnl={pnl:+.4f} "
+        f"cash=${st.cash:.2f}")
+    append_trade_log({"event": "stop", "mark": mark, "exit_price": exit_px,
+                      "pnl": pnl, "cash": st.cash, **asdict(p)})
+    st.save()
+
+
+def check_stops(client: KalshiClient, st: State, markets_by_ticker: dict):
+    for p in list(st.open_positions):
+        if not p.filled or p.settled:
+            continue
+        m = markets_by_ticker.get(p.ticker)
+        if not m:
+            try:
+                m = client.market(p.ticker)
+            except Exception:
+                continue
+        mark = side_mark(m, p.side)
+        if mark is None:
+            continue
+        if stop_triggered(p.entry, mark):
+            log(f"stop trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
+                f"threshold={p.entry * (1 - STOP_LOSS_PCT):.2f}")
+            close_position_stop(client, st, p, m, mark)
+
+
 def settle_due(client: KalshiClient, st: State):
     now = time.time()
     for p in list(st.open_positions):
@@ -389,6 +497,8 @@ def settle_due(client: KalshiClient, st: State):
         p.settled = True
         p.result = int(won)
         p.pnl = pnl
+        p.exit_reason = "settle"
+        p.exit_price = 1.0 if won else 0.0
         if st.mode == "live":
             sync_live_cash(client, st)
         else:
@@ -441,7 +551,8 @@ def main():
             st.save()
         log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
     log(f"starting MODE={st.mode}  {sizing.describe(st.cash if st.mode == 'live' else st.start_equity)}")
-    log(f"series={SERIES}  window={WINDOW_SEC}s  price=[{PRICE_LO},{PRICE_HI})")
+    log(f"series={SERIES}  window={WINDOW_SEC}s  price=[{PRICE_LO},{PRICE_HI})  "
+        f"stop_loss={100*STOP_LOSS_PCT:.0f}% under entry")
 
     last_summary = 0.0
     while RUNNING:
@@ -450,6 +561,7 @@ def main():
                 update_live_fills(client, st)
             settle_due(client, st)
             now = time.time()
+            markets_by_ticker: dict[str, dict] = {}
             for series in SERIES:
                 try:
                     markets = client.open_markets(series)
@@ -465,6 +577,7 @@ def main():
                         m = client.market(ticker)
                     except Exception:
                         pass
+                    markets_by_ticker[ticker] = m
 
                     if st.mode == "paper":
                         update_paper_fills(st, m)
@@ -483,6 +596,8 @@ def main():
                     log(f"signal {ticker} mid={mid:.3f} -> {side} @{entry:.2f} "
                         f"({secs_left:.0f}s left)")
                     try_open(client, st, m, side, entry)
+
+            check_stops(client, st, markets_by_ticker)
 
             if now - last_summary > 60:
                 if st.mode == "live":
