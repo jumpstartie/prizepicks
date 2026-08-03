@@ -38,8 +38,14 @@ PRICE_LO = float(os.environ.get("PRICE_LO", "0.90"))
 PRICE_HI = float(os.environ.get("PRICE_HI", "0.97"))
 # Signal window: last N seconds before close
 WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "180"))
-STATE_PATH = Path(os.environ.get("STATE_PATH", "bot/state.json"))
-LOG_PATH = Path(os.environ.get("LOG_PATH", "bot/trades.jsonl"))
+STATE_PATH = Path(os.environ.get(
+    "STATE_PATH",
+    "bot/state_live.json" if MODE == "live" else "bot/state.json",
+))
+LOG_PATH = Path(os.environ.get(
+    "LOG_PATH",
+    "bot/trades_live.jsonl" if MODE == "live" else "bot/trades.jsonl",
+))
 
 RUNNING = True
 
@@ -208,24 +214,24 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         book_side = "bid" if side == "yes" else "ask"
         book_price = entry if side == "yes" else round(1 - entry, 4)
         try:
-            resp = client.create_order(ticker, book_side, unit, book_price, post_only=True)
+            resp = client.create_order(
+                ticker, book_side, unit, book_price, post_only=True,
+                expiration_ts=int(pos.close_ts),
+            )
             pos.order_id = resp.get("order_id", "")
             pos.client_order_id = resp.get("client_order_id", "")
             fill = float(resp.get("fill_count", "0") or 0)
-            # post_only should not take liquidity; treat remaining as resting
             if fill > 0:
-                # unexpected immediate fill (crossed) — still record
                 pos.filled = True
-                st.cash -= entry * fill
                 pos.contracts = fill
                 pos.cost = entry * fill
-            log(f"LIVE order {book_side} {unit} @ {book_price} on {ticker} "
+                st.cash -= pos.cost
+            log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
                 f"order_id={pos.order_id} fill={fill}")
         except Exception as e:
             log(f"LIVE order failed {ticker}: {e}")
             return
     else:
-        # paper: rest the order; fill checked on subsequent polls
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
             f"(mid signal, {int(pos.close_ts - time.time())}s to close)")
 
@@ -233,6 +239,60 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     st.signaled.append(ticker)
     st.save()
     append_trade_log({"event": "signal", "mode": st.mode, **asdict(pos)})
+
+
+def sync_live_cash(client: KalshiClient, st: State):
+    """Refresh cash from Kalshi balance; equity = cash + open filled cost."""
+    try:
+        bal = client.balance()
+        dollars = float(bal.get("balance_dollars") or (bal.get("balance", 0) / 100))
+        # balance_dollars is free cash; portfolio_value is marked open positions
+        port = float(bal.get("portfolio_value") or 0)
+        # portfolio_value may be in cents on older payloads
+        if port > 1000 and dollars < 100:
+            port = port / 100.0
+        st.cash = dollars
+        return dollars + port
+    except Exception as e:
+        log(f"balance sync failed: {e}")
+        return st.equity
+
+
+def update_live_fills(client: KalshiClient, st: State):
+    """Poll resting live orders for fills / cancels."""
+    for p in st.open_positions:
+        if p.filled or not p.order_id:
+            continue
+        try:
+            o = client.get_order(p.order_id)
+        except Exception as e:
+            log(f"get_order {p.order_id}: {e}")
+            continue
+        fill = float(o.get("fill_count_fp") or o.get("fill_count") or 0)
+        status = o.get("status")
+        if fill > 0 and not p.filled:
+            # cost: prefer maker_fill_cost, else entry * fill
+            cost_s = o.get("maker_fill_cost_dollars") or o.get("taker_fill_cost_dollars")
+            try:
+                cost = float(cost_s) if cost_s not in (None, "", "0", "0.0000") else p.entry * fill
+            except (TypeError, ValueError):
+                cost = p.entry * fill
+            # if cost looks like cents integer leftover, ignore
+            p.filled = True
+            p.contracts = fill
+            p.cost = cost
+            sync_live_cash(client, st)
+            log(f"LIVE FILL {p.side.upper()} {fill:.2f} @ ~{p.entry:.2f} on {p.ticker} "
+                f"status={status} cash=${st.cash:.2f}")
+            append_trade_log({"event": "fill", "mode": "live", "status": status,
+                              **asdict(p)})
+            st.save()
+        elif status == "canceled" and fill <= 0:
+            log(f"LIVE cancel unfilled {p.ticker} order={p.order_id}")
+            p.settled = True
+            p.pnl = 0.0
+            st.closed.append(asdict(p))
+            st.save()
 
 
 def update_paper_fills(st: State, mkt: dict):
@@ -284,8 +344,22 @@ def update_paper_fills(st: State, mkt: dict):
 def settle_due(client: KalshiClient, st: State):
     now = time.time()
     for p in list(st.open_positions):
-        if now < p.close_ts + 15:  # wait ~15s past close for finalization
+        # cancel resting live orders a few seconds after close if still open
+        if st.mode == "live" and not p.filled and p.order_id and now >= p.close_ts + 5:
+            try:
+                client.cancel_order(p.order_id, market_ticker=p.ticker)
+                log(f"LIVE cancel past-close {p.ticker}")
+            except Exception as e:
+                # already filled/canceled is fine
+                if "404" not in str(e) and "not found" not in str(e).lower():
+                    log(f"cancel {p.ticker}: {e}")
+
+        if now < p.close_ts + 20:
             continue
+        # final fill check before settling
+        if st.mode == "live" and p.order_id and not p.filled:
+            update_live_fills(client, st)
+
         try:
             m = client.market(p.ticker)
         except Exception as e:
@@ -294,8 +368,7 @@ def settle_due(client: KalshiClient, st: State):
         status = m.get("status")
         result = m.get("result")
         if status not in ("finalized", "determined", "settled") and result not in ("yes", "no"):
-            # cancel unfilled resting orders past close
-            if not p.filled and now > p.close_ts + 30:
+            if not p.filled and now > p.close_ts + 45:
                 log(f"expire unfilled {p.ticker}")
                 p.settled = True
                 p.pnl = 0.0
@@ -313,10 +386,13 @@ def settle_due(client: KalshiClient, st: State):
             continue
         payout = p.contracts * (1.0 if won else 0.0)
         pnl = payout - p.cost
-        st.cash += payout
         p.settled = True
         p.result = int(won)
         p.pnl = pnl
+        if st.mode == "live":
+            sync_live_cash(client, st)
+        else:
+            st.cash += payout
         st.closed.append(asdict(p))
         log(f"SETTLE {p.ticker} {p.side.upper()} {'WIN' if won else 'LOSS'} "
             f"pnl={pnl:+.4f}  cash=${st.cash:.2f} equity=${st.equity:.2f}")
@@ -358,18 +434,20 @@ def main():
         sys.exit(1)
 
     st = State.load_or_new(START_EQUITY, MODE)
-    log(f"starting MODE={st.mode}  {sizing.describe(st.start_equity)}")
-    log(f"series={SERIES}  window={WINDOW_SEC}s  price=[{PRICE_LO},{PRICE_HI})")
     if st.mode == "live":
-        try:
-            bal = client.balance()
-            log(f"live balance: {bal}")
-        except Exception as e:
-            log(f"warning: could not fetch balance: {e}")
+        eq = sync_live_cash(client, st)
+        if not st.closed and not st.positions:
+            st.start_equity = st.cash
+            st.save()
+        log(f"live balance cash=${st.cash:.4f} (equity~${eq:.4f})")
+    log(f"starting MODE={st.mode}  {sizing.describe(st.cash if st.mode == 'live' else st.start_equity)}")
+    log(f"series={SERIES}  window={WINDOW_SEC}s  price=[{PRICE_LO},{PRICE_HI})")
 
     last_summary = 0.0
     while RUNNING:
         try:
+            if st.mode == "live":
+                update_live_fills(client, st)
             settle_due(client, st)
             now = time.time()
             for series in SERIES:
@@ -383,13 +461,13 @@ def main():
                     close_ts = parse_ts(m["close_time"])
                     secs_left = close_ts - now
 
-                    # refresh for fills / more accurate quotes
                     try:
                         m = client.market(ticker)
                     except Exception:
                         pass
 
-                    update_paper_fills(st, m)
+                    if st.mode == "paper":
+                        update_paper_fills(st, m)
 
                     if ticker in st.signaled:
                         continue
@@ -407,6 +485,8 @@ def main():
                     try_open(client, st, m, side, entry)
 
             if now - last_summary > 60:
+                if st.mode == "live":
+                    sync_live_cash(client, st)
                 log(summary(st))
                 last_summary = now
         except Exception as e:

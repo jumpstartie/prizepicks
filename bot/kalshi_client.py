@@ -109,8 +109,21 @@ class KalshiClient:
     def balance(self) -> dict:
         return self._request("GET", self.trade_base, "/portfolio/balance", auth=True)
 
+    def get_order(self, order_id: str) -> dict:
+        d = self._request("GET", self.trade_base, f"/portfolio/orders/{order_id}", auth=True)
+        return d.get("order", d)
+
+    def get_positions(self, ticker: Optional[str] = None) -> list[dict]:
+        q = {"limit": 200, "count_filter": "position,total_traded"}
+        if ticker:
+            q["ticker"] = ticker
+        path = "/portfolio/positions?" + urllib.parse.urlencode(q)
+        d = self._request("GET", self.trade_base, path, auth=True)
+        return d.get("market_positions", [])
+
     def create_order(self, ticker: str, side: str, count: float, price: float,
-                     post_only: bool = True, client_order_id: Optional[str] = None) -> dict:
+                     post_only: bool = True, client_order_id: Optional[str] = None,
+                     expiration_ts: Optional[int] = None) -> dict:
         """V2 create order. side is 'bid' (buy YES) or 'ask' (sell YES / buy NO)."""
         body = {
             "ticker": ticker,
@@ -123,9 +136,13 @@ class KalshiClient:
             "client_order_id": client_order_id or str(uuid.uuid4()),
             "exchange_index": -1,
         }
+        if expiration_ts:
+            body["expiration_time"] = int(expiration_ts)
         return self._request("POST", self.trade_base, "/portfolio/events/orders",
                              body=body, auth=True)
 
-    def cancel_order(self, order_id: str) -> dict:
-        return self._request("DELETE", self.trade_base,
-                             f"/portfolio/events/orders/{order_id}", auth=True)
+    def cancel_order(self, order_id: str, market_ticker: Optional[str] = None) -> dict:
+        path = f"/portfolio/events/orders/{order_id}?exchange_index=-1"
+        if market_ticker:
+            path += "&market_ticker=" + urllib.parse.quote(market_ticker)
+        return self._request("DELETE", self.trade_base, path, auth=True)

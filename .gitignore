@@ -5,3 +5,7 @@ bot/trades.jsonl
 .env
 __pycache__/
 bot/runner.log
+secrets/
+bot/state_live.json
+bot/trades_live.jsonl
+bot/runner_live.log
