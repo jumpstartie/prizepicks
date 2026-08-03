@@ -32,29 +32,35 @@ from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_fo
 
 # Profit-first defaults from live + 31d research: core favorites only, hold to settle.
 # (HYPE/ZEC stops were the only live losses; BTC/DOGE/ETH were flat in backtest.)
-SERIES = os.environ.get(
-    "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M"
-).split(",")
-# Optional half-size satellites (empty by default — add via env when exploring)
+SERIES = [
+    s.strip() for s in os.environ.get(
+        "SERIES", "KXBNB15M,KXSOL15M,KXXRP15M"
+    ).split(",") if s.strip()
+]
+# Optional half-size satellites (also scanned for signals)
 SATELLITE_SERIES = set(
     s.strip() for s in os.environ.get("SATELLITE_SERIES", "").split(",") if s.strip()
 )
 SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
+# Markets we actually poll = core + satellites
+ALL_SERIES = list(dict.fromkeys(SERIES + sorted(SATELLITE_SERIES)))
 START_EQUITY = float(os.environ.get("START_EQUITY", "20"))
 MODE = os.environ.get("MODE", "paper").lower()  # paper | live
 POLL_SEC = float(os.environ.get("POLL_SEC", "5"))
-PRICE_LO = float(os.environ.get("PRICE_LO", "0.90"))
-PRICE_HI = float(os.environ.get("PRICE_HI", "0.97"))
+# Frequency-first band: catch favorites before they lock at 99¢.
+# Research sweet-spot was 90–97; we widen slightly for more fills.
+PRICE_LO = float(os.environ.get("PRICE_LO", "0.88"))
+PRICE_HI = float(os.environ.get("PRICE_HI", "0.985"))
 # 0 = disabled. Live data: settle exits +EV, stop exits wiped the edge.
 STOP_LOSS_PCT = float(os.environ.get("STOP_LOSS_PCT", "0"))
 # Do not stop-loss in the final N seconds — hold to settlement (favorites wick).
 STOP_DISABLE_SECS = int(os.environ.get("STOP_DISABLE_SECS", "60"))
-# Signal window: last N seconds before close
-WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "180"))
+# Signal window: last N seconds before close (earlier = more chances before 99¢ lock)
+WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "480"))
 # Require at least this much time left to enter (blocks last-second flip chases)
-MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "60"))
+MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "30"))
 # Require the favorite band on the same side for this many consecutive polls
-CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
+CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "1"))
 # Requotes after a post-only-cross rejection
 MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 # Per-trade take-profit on top of hold-to-settle favorites:
@@ -74,9 +80,9 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
 # Skip favorites that are already too rich (little upside left vs $1 settle)
-SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.965"))
+SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.985"))
 # Max yes-spread (ask-bid) to enter; wide books = adverse selection
-MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.04"))
+MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.06"))
 # Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
 BINANCE_LEAD = lean_enabled()
 BINANCE_LEAD_MODE = lean_mode()  # filter | strict | off
@@ -885,7 +891,7 @@ def sync_lead_symbols(st: State) -> None:
     if LEAD_FEED is None:
         return
     wanted: set[str] = set()
-    for series in SERIES:
+    for series in ALL_SERIES:
         sym = symbol_for(series.strip())
         if sym:
             wanted.add(sym)
@@ -1032,7 +1038,7 @@ def main():
 
     if BINANCE_LEAD and BINANCE_LEAD_MODE not in ("off", "0", "false"):
         syms = sorted({
-            s for series in SERIES
+            s for series in ALL_SERIES
             if (s := symbol_for(series.strip()))
         })
         if syms:
@@ -1057,7 +1063,7 @@ def main():
     bank = st.cash if st.mode == "live" else st.start_equity
     log(f"starting MODE={st.mode}  "
         f"{sizing.describe(bank, floor=HALT_FLOOR, closed=st.closed)}")
-    log(f"series={SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
+    log(f"series={ALL_SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
         f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
         f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
@@ -1087,7 +1093,7 @@ def main():
                 now = time.time()
                 markets_by_ticker: dict[str, dict] = {}
                 seen_tickers: set[str] = set()
-                for series in SERIES:
+                for series in ALL_SERIES:
                     try:
                         markets = client.open_markets(series)
                     except Exception as e:

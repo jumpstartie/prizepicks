@@ -47,12 +47,12 @@ START_EQUITY=20 MODE=live \
 | `START_EQUITY` | `20` | starting bankroll for sizing / halt |
 | `MODE` | `paper` | `paper` or `live` |
 | `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M` | core markets |
-| `WINDOW_SEC` | `180` | earliest signal window before close |
-| `MIN_SECS_LEFT` | `60` | no new entries inside final minute |
-| `CONFIRM_POLLS` | `2` | same-side band must hold this many polls |
-| `PRICE_LO` / `PRICE_HI` | `0.90` / `0.97` | favorite price band |
-| `SKIP_ENTRY_RICH` | `0.965` | skip entries ≥ this unless Binance agrees |
-| `MAX_SPREAD` | `0.04` | skip if yes ask−bid wider than this |
+| `WINDOW_SEC` | `480` | look in last 8 minutes (catch before 99¢ lock) |
+| `MIN_SECS_LEFT` | `30` | no new entries inside final 30s |
+| `CONFIRM_POLLS` | `1` | polls required in-band (1 = faster entries) |
+| `PRICE_LO` / `PRICE_HI` | `0.88` / `0.985` | favorite price band (wider = more trades) |
+| `SKIP_ENTRY_RICH` | `0.985` | skip entries ≥ this unless Binance agrees |
+| `MAX_SPREAD` | `0.06` | skip if yes ask−bid wider than this |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
