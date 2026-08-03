@@ -56,8 +56,13 @@ MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "60"))
 CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "2"))
 # Requotes after a post-only-cross rejection
 MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
-# Per-trade take-profit: exit when mark >= entry * mult (binaries cap at $1,
-# so this only fires when entry <= 1/mult, e.g. entry <= 33¢ for 3x).
+# Per-trade take-profit — fire on the first reachable target:
+#   ABS:  mark hits a near-ceiling spike (catches abnormal runs on favorites)
+#   GAIN: mark is up this many dollars from entry (e.g. 0.05 = +5¢)
+#   MULT: mark >= entry * mult (only reachable on cheap entries; binaries cap $1)
+TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.98"))
+# Optional +$ gain from entry; 0 = off (abs spike is the main favorite exit)
+TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "2.0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
@@ -167,12 +172,45 @@ class State:
         return st
 
 
+def tp_targets_for_entry(entry: float) -> list[tuple[float, str]]:
+    """Reachable take-profit (price, reason) pairs, lowest first.
+
+    Favorites at 90¢+ cannot 2x on a $1 binary; abs/gain catch near-ceiling spikes.
+    """
+    if entry <= 0:
+        return []
+    out: list[tuple[float, str]] = []
+    if TAKE_PROFIT_ABS > 0:
+        abs_px = min(TAKE_PROFIT_ABS, TAKE_PROFIT_CAP)
+        if abs_px > entry:
+            out.append((round(abs_px, 4), "abs"))
+    if TAKE_PROFIT_GAIN > 0:
+        gain_px = round(min(entry + TAKE_PROFIT_GAIN, TAKE_PROFIT_CAP), 4)
+        if gain_px > entry:
+            out.append((gain_px, "gain"))
+    if TAKE_PROFIT_MULT > 1:
+        mult_px = round(entry * TAKE_PROFIT_MULT, 4)
+        if mult_px <= TAKE_PROFIT_CAP and mult_px > entry:
+            out.append((mult_px, "mult"))
+    # de-dupe by price, keep first reason, sort ascending
+    best: dict[float, str] = {}
+    for px, reason in out:
+        best.setdefault(px, reason)
+    return sorted(best.items(), key=lambda x: x[0])
+
+
 def tp_price_for_entry(entry: float) -> float | None:
-    """Return take-profit mark if 3x entry is attainable on a $0–$1 binary."""
-    raw = entry * TAKE_PROFIT_MULT
-    if raw > TAKE_PROFIT_CAP:
-        return None  # unreachable (typical for 90c+ favorites)
-    return round(raw, 4)
+    """Lowest reachable take-profit mark, or None if no upside target."""
+    targets = tp_targets_for_entry(entry)
+    return targets[0][0] if targets else None
+
+
+def tp_hit(entry: float, mark: float) -> tuple[float, str] | None:
+    """If mark has reached any TP target, return (target, reason)."""
+    for px, reason in tp_targets_for_entry(entry):
+        if mark >= px:
+            return px, reason
+    return None
 
 
 def mid_of(m: dict) -> float | None:
@@ -382,12 +420,18 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             pos.contracts = fill
             pos.cost = entry * fill
             st.cash -= pos.cost
-        tp_note = f"tp={tp:.2f}" if tp is not None else f"tp=n/a (need entry≤{TAKE_PROFIT_CAP/TAKE_PROFIT_MULT:.2f} for {TAKE_PROFIT_MULT:.0f}x)"
+        targets = tp_targets_for_entry(entry)
+        if targets:
+            tp_note = "tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
+        else:
+            tp_note = "tp=n/a (no upside to cap)"
         sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
             f"order_id={pos.order_id} fill={fill}  {tp_note}{sat}")
     else:
-        tp_note = f"tp={tp:.2f}" if tp is not None else "tp=n/a"
+        targets = tp_targets_for_entry(entry)
+        tp_note = ("tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
+                   if targets else "tp=n/a")
         sat = f"  satellite×{mult}" if mult < 1 else ""
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
             f"(mid signal, {int(close_ts - time.time())}s to close)  {tp_note}{sat}")
@@ -600,11 +644,12 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
         if mark is None:
             continue
 
-        # Take-profit first: Nx entry (only if tp_price was attainable at entry)
-        tp = p.tp_price if p.tp_price is not None else tp_price_for_entry(p.entry)
-        if tp is not None and mark >= tp:
+        # Take-profit: near-ceiling spike, +gain from entry, or Nx on cheap entries
+        hit = tp_hit(p.entry, mark)
+        if hit is not None:
+            tp, reason = hit
             log(f"tp trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
-                f"target={tp:.2f} ({TAKE_PROFIT_MULT:.0f}x)")
+                f"target={tp:.2f} ({reason})")
             close_position_exit(client, st, p, mark, "take_profit")
             continue
 
@@ -725,7 +770,8 @@ def main():
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
         f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={'OFF' if STOP_LOSS_PCT <= 0 else f'{100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)'}  "
-        f"take_profit={TAKE_PROFIT_MULT:.0f}x entry (cap {TAKE_PROFIT_CAP:.2f})  "
+        f"take_profit=abs≥{TAKE_PROFIT_ABS:.2f}|gain+{TAKE_PROFIT_GAIN:.2f}|"
+        f"{TAKE_PROFIT_MULT:.0f}x (cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
