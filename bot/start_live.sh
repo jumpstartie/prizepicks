@@ -12,11 +12,11 @@ export START_EQUITY=20
 export EDGE_SIZING=1
 export RISK_FRACTION=0.18
 export RISK_FRAC_MIN=0.13
-# Risk bump (with 1.5× stack cap + trailing floor as guardrails)
-export RISK_FRAC_MAX=0.28
-export EDGE_KELLY_FRAC=0.40
-# Raised from 70 after banking the morning run (protect ~$120 book)
-export HALT_FLOOR=100
+# Kelly pulled back after 17:30 hot-ticket cluster pressed the floor
+export RISK_FRAC_MAX=0.25
+export EDGE_KELLY_FRAC=0.33
+# Static floor eased so we keep firing after a halt (was $100 / HW×0.70)
+export HALT_FLOOR=95
 # Trailing floor: ratchets to 70% of realized (flat) high-water — protection
 # grows with the book but always leaves ~30% drawdown room to keep trading
 export HALT_TRAIL_FRAC=0.70

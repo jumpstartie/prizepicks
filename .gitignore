@@ -9,3 +9,7 @@ secrets/
 bot/state_live.json
 bot/trades_live.jsonl
 bot/runner_live.log
+bot/monitor.log
+bot/trade_journal.jsonl
+bot/trade_journal_alerts.log
+bot/.journal_seen.json
