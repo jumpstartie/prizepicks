@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live favorite-maker launch (post +$50 pause config).
+# Live favorite-maker launch — overnight #3 + risk upgrades.
 set -euo pipefail
 cd /workspace
 set -a
@@ -15,8 +15,8 @@ export RISK_FRAC_MIN=0.10
 export RISK_FRAC_MAX=0.25
 export HALT_FLOOR=50
 export HALT_LOSS_BUFFER=1
-# +$50 from start_equity (reset to flat bankroll when resuming a #3 leg)
-export HALT_PROFIT=50
+# Run through the night — no +$50 pause
+export HALT_PROFIT=0
 export STOP_LOSS_PCT=0
 export TAKE_PROFIT_ABS=0.995
 export TAKE_PROFIT_MULT=0
@@ -33,11 +33,19 @@ export MAX_EXPOSURE_FRAC=0.70
 export SERIES=KXBNB15M,KXSOL15M,KXXRP15M,KXETH15M
 export SATELLITE_SERIES=KXBTC15M,KXDOGE15M
 export SATELLITE_SIZE_MULT=0.5
-# Strategy #3: full size on soft favorites (no soft cut)
+# Strategy #3 full soft size, with staged time cuts instead of flat soft cut
 export SOFT_ENTRY_MAX=0.85
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
 export SOFT_ENTRY_EARLY_MULT=1.0
+export SOFT_CORR_MAX=2
+export STAGE_SIZE=1
+export STAGE_SIZE_10M_MULT=0.50
+export STAGE_SIZE_5M_MULT=0.75
+export SOFT_BINANCE_STRICT=1
+export LOSS_COOLDOWN_LOSSES=2
+export LOSS_COOLDOWN_SEC=900
+export LOSS_COOLDOWN_RISK_MULT=0.50
 export BINANCE_LEAD=1
 export BINANCE_WS=1
 export COINBASE_CONFIRM=1

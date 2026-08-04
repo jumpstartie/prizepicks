@@ -78,12 +78,26 @@ TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "50.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
-# Soft favorites: SIZE_MULT=1.0 disables the cut (strategy #3 full max-frequency).
+# Soft favorites: SIZE_MULT=1.0 disables the flat cut (strategy #3 full max-frequency).
 SOFT_ENTRY_MAX = float(os.environ.get("SOFT_ENTRY_MAX", "0.85"))
 SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "1.0"))
 SOFT_ENTRY_EARLY_SECS = float(os.environ.get("SOFT_ENTRY_EARLY_SECS", "300"))
 # 1.0 = disabled.
 SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "1.0"))
+# Cap how many soft (<SOFT_ENTRY_MAX) positions can be open together (corr risk).
+SOFT_CORR_MAX = int(os.environ.get("SOFT_CORR_MAX", "2"))
+# Staged size by time-left: >10m ×0.5, >5m ×0.75, else full.
+STAGE_SIZE = os.environ.get("STAGE_SIZE", "1").lower() in ("1", "true", "yes", "on")
+STAGE_SIZE_10M_MULT = float(os.environ.get("STAGE_SIZE_10M_MULT", "0.50"))
+STAGE_SIZE_5M_MULT = float(os.environ.get("STAGE_SIZE_5M_MULT", "0.75"))
+# Soft entries require a Binance lean in our favor (skip flat/disagree).
+SOFT_BINANCE_STRICT = os.environ.get("SOFT_BINANCE_STRICT", "1").lower() in (
+    "1", "true", "yes", "on",
+)
+# After N losses in the same 15m bucket, cut risk for a cooldown window.
+LOSS_COOLDOWN_LOSSES = int(os.environ.get("LOSS_COOLDOWN_LOSSES", "2"))
+LOSS_COOLDOWN_SEC = float(os.environ.get("LOSS_COOLDOWN_SEC", "900"))
+LOSS_COOLDOWN_RISK_MULT = float(os.environ.get("LOSS_COOLDOWN_RISK_MULT", "0.50"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
 MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))
@@ -108,6 +122,8 @@ LOG_PATH = Path(os.environ.get(
 
 RUNNING = True
 LEAD_FEED: BinanceLeadFeed | None = None
+_COOLDOWN_UNTIL = 0.0
+_COOLDOWN_RISK_MULT = 1.0
 
 
 def log(msg: str):
@@ -412,7 +428,7 @@ def series_root(ticker: str) -> str:
 
 def size_mult_for(ticker: str, entry: float | None = None,
                   secs_left: float | None = None) -> tuple[float, str]:
-    """Position size multiplier + reason tag (satellite / soft-entry cuts)."""
+    """Position size multiplier + reason tag (satellite / soft / staged cuts)."""
     mult = SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
     tags: list[str] = []
     if series_root(ticker) in SATELLITE_SERIES:
@@ -424,7 +440,68 @@ def size_mult_for(ticker: str, entry: float | None = None,
                 and SOFT_ENTRY_EARLY_MULT < 1):
             mult *= SOFT_ENTRY_EARLY_MULT
             tags.append(f"early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}")
-    return mult,("+".join(tags) if tags else "full")
+    if STAGE_SIZE and secs_left is not None:
+        if secs_left > 600 and STAGE_SIZE_10M_MULT < 1:
+            mult *= STAGE_SIZE_10M_MULT
+            tags.append(f"stage>10m×{STAGE_SIZE_10M_MULT:g}")
+        elif secs_left > 300 and STAGE_SIZE_5M_MULT < 1:
+            mult *= STAGE_SIZE_5M_MULT
+            tags.append(f"stage>5m×{STAGE_SIZE_5M_MULT:g}")
+    return mult, ("+".join(tags) if tags else "full")
+
+
+def soft_open_count(st: State) -> int:
+    return sum(1 for p in st.open_positions if (p.entry or 0) < SOFT_ENTRY_MAX)
+
+
+def soft_binance_ok(ticker: str, side: str, entry: float) -> tuple[bool, str]:
+    """For soft favorites, require a same-way Binance lean (skip flat/disagree)."""
+    if entry >= SOFT_ENTRY_MAX or not SOFT_BINANCE_STRICT:
+        return True, "ok"
+    if not _lead_active() or LEAD_FEED is None:
+        return True, "no_lead"
+    ok, sig, reason = LEAD_FEED.agrees(ticker, side, require_lean=True)
+    if ok and sig is not None and sig.direction != "flat":
+        return True, "soft_bn_agree"
+    detail = "n/a" if sig is None else f"{sig.direction}:{sig.ret_pct*100:+.3f}%"
+    return False, f"{reason}:{detail}"
+
+
+def cooldown_risk_mult() -> float:
+    if time.time() >= _COOLDOWN_UNTIL:
+        return 1.0
+    return _COOLDOWN_RISK_MULT
+
+
+def note_loss_cooldown(st: State, pos: Position | dict, pnl: float) -> None:
+    """After clustered settle/stop losses, temporarily cut risk."""
+    global _COOLDOWN_UNTIL, _COOLDOWN_RISK_MULT
+    if pnl >= 0 or LOSS_COOLDOWN_LOSSES <= 0:
+        return
+    close_ts = float(pos["close_ts"] if isinstance(pos, dict) else pos.close_ts)
+    bucket = int(close_ts // 900) if close_ts > 0 else 0
+    losses = 0
+    for c in st.closed[-30:]:
+        if (c.get("pnl") or 0) >= 0:
+            continue
+        cts = float(c.get("close_ts") or 0)
+        if cts > 0 and int(cts // 900) == bucket:
+            losses += 1
+    # include the loss just recorded (may already be in closed)
+    ticker = pos["ticker"] if isinstance(pos, dict) else pos.ticker
+    if not any(c.get("ticker") == ticker and (c.get("pnl") or 0) < 0
+               and int(float(c.get("close_ts") or 0) // 900) == bucket
+               for c in st.closed[-30:]):
+        losses += 1
+    if losses >= LOSS_COOLDOWN_LOSSES:
+        _COOLDOWN_UNTIL = time.time() + LOSS_COOLDOWN_SEC
+        _COOLDOWN_RISK_MULT = LOSS_COOLDOWN_RISK_MULT
+        log(f"LOSS COOLDOWN {losses} losses in bucket {bucket} — "
+            f"risk×{LOSS_COOLDOWN_RISK_MULT:g} for {LOSS_COOLDOWN_SEC:.0f}s")
+        append_trade_log({
+            "event": "loss_cooldown", "losses": losses, "bucket": bucket,
+            "risk_mult": LOSS_COOLDOWN_RISK_MULT, "sec": LOSS_COOLDOWN_SEC,
+        })
 
 
 def book_spread(m: dict) -> float | None:
@@ -464,6 +541,12 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         append_trade_log({"event": "skip_mispricing", "ticker": ticker,
                           "side": side, "entry": entry, "reason": why_m})
         return
+    ok_bn, why_bn = soft_binance_ok(ticker, side, entry)
+    if not ok_bn:
+        log(f"skip {ticker}: soft Binance gate ({why_bn})")
+        append_trade_log({"event": "skip_soft_binance", "ticker": ticker,
+                          "side": side, "entry": entry, "reason": why_bn})
+        return
 
     try:
         last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
@@ -471,10 +554,20 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         last_at = None
     close_ts = parse_ts(m["close_time"])
     secs_left = close_ts - time.time()
+    if entry < SOFT_ENTRY_MAX and soft_open_count(st) >= SOFT_CORR_MAX:
+        log(f"skip {ticker}: soft corr cap {SOFT_CORR_MAX} "
+            f"(entry={entry:.2f}<{SOFT_ENTRY_MAX:g})")
+        append_trade_log({"event": "skip_soft_corr", "ticker": ticker,
+                          "side": side, "entry": entry, "cap": SOFT_CORR_MAX})
+        return
     mult, mult_tag = size_mult_for(ticker, entry=entry, secs_left=secs_left)
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
     )
+    cd_mult = cooldown_risk_mult()
+    if cd_mult < 1:
+        risk_frac *= cd_mult
+        edge = type(edge)(**{**edge.__dict__, "reason": edge.reason + "+cooldown"})
     unit = sizing.contracts_for_equity(
         st.equity, entry, size_mult=mult, risk_frac=risk_frac,
     )
@@ -746,6 +839,8 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
     p.result = 1 if pnl > 0 else 0
     p.settled = True
     st.closed.append(asdict(p))
+    if pnl < 0:
+        note_loss_cooldown(st, p, pnl)
     log(f"{label} {p.ticker} {p.side.upper()} entry={p.entry:.2f} mark={mark:.2f} "
         f"exit~{exit_px:.2f} pnl={pnl:+.4f} cash=${st.cash:.2f}")
     append_trade_log({"event": reason, "mark": mark, "exit_price": exit_px,
@@ -857,6 +952,8 @@ def settle_due(client: KalshiClient, st: State):
             "markout_per_contract": markout,
             "cash": st.cash, "equity": st.equity, **asdict(p),
         })
+        if not won:
+            note_loss_cooldown(st, p, pnl)
         st.save()
 
 
@@ -1120,6 +1217,10 @@ def main():
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
         f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
+        f"soft_corr≤{SOFT_CORR_MAX}  "
+        f"stage_size={'ON' if STAGE_SIZE else 'OFF'}  "
+        f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
+        f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")

@@ -13,12 +13,11 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ## $20 test sizing (edge-aware)
 
 ```
-bankroll≈$70+ (max-frequency #3 full size)
-risk/trade ≈ 10–25% of equity (EDGE_SIZING), halt floor $50
-soft-entry size cut OFF (SOFT_ENTRY_SIZE_MULT=1.0)
-optional HALT_PROFIT=+50 from start_equity baseline
-stop-loss OFF — hold favorites to settlement / spike TP ≥ 0.995
-binance lead ON (ws + filter)
+bankroll≈$65+ (overnight #3 + risk upgrades)
+risk/trade ≈ 10–25% (EDGE_SIZING), halt floor $50, profit halt OFF
+soft corr cap ≤2; staged size >10m×0.5 / >5m×0.75; soft Binance lean required
+loss cooldown: 2 losses/bucket → risk×0.5 for 15m
+stop-loss OFF — spike TP ≥ 0.995; binance lead ON
 ```
 
 `EDGE_SIZING=1` (default) sets risk from recent settles (quarter-Kelly, shrunk to prior),
