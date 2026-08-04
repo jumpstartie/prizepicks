@@ -23,7 +23,7 @@ RISK_FRAC_MAX = float(os.environ.get("RISK_FRAC_MAX", "0.25"))   # modest bump o
 EDGE_SIZING = os.environ.get("EDGE_SIZING", "1").lower() in ("1", "true", "yes", "on")
 EDGE_LOOKBACK = int(os.environ.get("EDGE_LOOKBACK", "30"))       # recent filled closes
 EDGE_MIN_SAMPLES = int(os.environ.get("EDGE_MIN_SAMPLES", "8"))
-EDGE_KELLY_FRAC = float(os.environ.get("EDGE_KELLY_FRAC", "0.25"))  # quarter-Kelly
+EDGE_KELLY_FRAC = float(os.environ.get("EDGE_KELLY_FRAC", "0.33"))  # ~1/3 Kelly
 EDGE_PRIOR_WR = float(os.environ.get("EDGE_PRIOR_WR", "0.93"))
 EDGE_PRIOR_STRENGTH = float(os.environ.get("EDGE_PRIOR_STRENGTH", "12"))  # pseudo-counts
 # 1 full-loss buffer to the raised floor so MAX risk can still bind near ~$70
@@ -31,7 +31,7 @@ HALT_LOSS_BUFFER = int(os.environ.get("HALT_LOSS_BUFFER", "1"))
 MAX_EXPOSURE_FRAC = 0.60
 MAX_CONCURRENT = 7
 HALT_EQUITY_FRAC = 0.50
-HALT_FLOOR_DOLLARS = 50.0
+HALT_FLOOR_DOLLARS = 70.0
 MIN_CONTRACTS = 0.01
 CONTRACT_STEP = 0.01
 

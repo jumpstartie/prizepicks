@@ -70,12 +70,12 @@ MAX_REQUOTES = int(os.environ.get("MAX_REQUOTES", "3"))
 #   GAIN: optional mark >= entry + $ (0 = off)
 #   MULT: optional Nx entry (0 = off; not used for 90¢+ favorites)
 # Near-ceiling spike exit; with rich entries this rarely beats settle
-TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.995"))
+TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.98"))
 TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
-HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "50.0"))
+HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
 # Soft favorites: SIZE_MULT=1.0 disables the flat cut (strategy #3 full max-frequency).
@@ -107,7 +107,7 @@ if os.environ.get("RISK_FRACTION"):
 # Skip only absurd locked books (set 1.0 to never skip on richness)
 SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.97"))
 # Soft + fast Binance agree size boost (aggressive when tape confirms)
-SOFT_BN_AGREE_MULT = float(os.environ.get("SOFT_BN_AGREE_MULT", "1.25"))
+SOFT_BN_AGREE_MULT = float(os.environ.get("SOFT_BN_AGREE_MULT", "1.50"))
 SOFT_BN_FLAT_MULT = float(os.environ.get("SOFT_BN_FLAT_MULT", "0.50"))
 # Max yes-spread (ask-bid) to enter; wide books = adverse selection
 MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.20"))

@@ -53,12 +53,13 @@ START_EQUITY=20 MODE=live \
 | `CONFIRM_POLLS` | `1` | polls required in-band (1 = faster entries) |
 | `PRICE_LO` / `PRICE_HI` | `0.70` / `0.999` | any clear favorite (max frequency) |
 | `SKIP_ENTRY_RICH` | `0.97` | skip rich favorites at/above this entry |
-| `SOFT_BN_AGREE_MULT` | `1.25` | soft-entry size when fast Binance agrees |
+| `SOFT_BN_AGREE_MULT` | `1.50` | soft-entry size when fast Binance agrees |
 | `SOFT_BN_FLAT_MULT` | `0.50` | soft-entry size when fast Binance is flat |
 | `MAX_SPREAD` | `0.20` | skip if yes ask−bid wider than this |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
-| `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
-| `HALT_FLOOR` | `50.0` | stop the run if equity ≤ this ($) |
+| `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this (earlier capture) |
+| `HALT_FLOOR` | `70.0` | stop the run if equity ≤ this ($) |
+| `EDGE_KELLY_FRAC` | `0.33` | fraction of full Kelly to use |
 | `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
 | `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut when mult&lt;1 |
 | `SOFT_ENTRY_SIZE_MULT` | `1.0` | soft-favorite multiplier (1.0 = #3 full size) |
