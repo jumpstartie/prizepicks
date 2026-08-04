@@ -105,8 +105,8 @@ export SOFT_ENTRY_MAX=0.85
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
 export SOFT_ENTRY_EARLY_MULT=1.0
-# Soft corr was the #2 skip reason — allow one more soft favorite
-export SOFT_CORR_MAX=3
+# Overnight: allow one more concurrent soft (ticket cap + bn-agree still bind)
+export SOFT_CORR_MAX=4
 # Stage only applies to soft <85¢ in code
 export STAGE_SIZE=1
 # Early tipped favorites were our best WR pocket — don't cut them in half
