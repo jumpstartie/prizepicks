@@ -81,6 +81,8 @@ export PRIOR_DIR_DISAGREE_MULT=0.50
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.50
 export SOFT_BN_FLAT_MULT=0.50
+# Never let stacked boosts (BN×early×hot) exceed 1.5× base size
+export MAX_SIZE_MULT=1.50
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=900
 export LOSS_COOLDOWN_RISK_MULT=0.50

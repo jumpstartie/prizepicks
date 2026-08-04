@@ -123,6 +123,9 @@ SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.95"))
 # Soft + fast Binance agree size boost (aggressive when tape confirms)
 SOFT_BN_AGREE_MULT = float(os.environ.get("SOFT_BN_AGREE_MULT", "1.50"))
 SOFT_BN_FLAT_MULT = float(os.environ.get("SOFT_BN_FLAT_MULT", "0.50"))
+# Hard cap on the stacked size multiplier (BN agree × early × hot gov, etc.).
+# Uncapped stacking hit ~2.3× and turned single soft losses into -$12..-17.
+MAX_SIZE_MULT = float(os.environ.get("MAX_SIZE_MULT", "1.50"))
 # Max yes-spread (ask-bid) to enter; wide books = adverse selection
 MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.20"))
 # Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
@@ -721,6 +724,9 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if gov_mult != 1.0:
         mult *= gov_mult
         mult_tag = f"{mult_tag}+{gov_tag}" if mult_tag else gov_tag
+    if MAX_SIZE_MULT > 0 and mult > MAX_SIZE_MULT:
+        mult_tag = f"{mult_tag}+cap×{MAX_SIZE_MULT:g}"
+        mult = MAX_SIZE_MULT
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=effective_floor(st),
     )
