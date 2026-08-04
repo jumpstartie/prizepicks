@@ -45,16 +45,16 @@ export CONFIRM_POLLS=1
 export POLL_SEC=1.0
 export MAX_CONCURRENT=8
 export MAX_EXPOSURE_FRAC=0.85
-# Core = printers (ETH/XRP/BNB + BTC promoted). SOL/NEAR cut after 12h drain.
+# Core = day-1 printers (ETH/XRP/BNB + BTC). No metals — gold/silver drained the book.
 export SERIES=KXBNB15M,KXXRP15M,KXETH15M,KXBTC15M
-# Satellites: DOGE + Pyth metals only (SOL/NEAR removed to free risk budget)
-export SATELLITE_SERIES=KXDOGE15M,KXGOLD15M,KXSILVER15M
+# Satellites: DOGE only (SOL/NEAR/metals removed)
+export SATELLITE_SERIES=KXDOGE15M
 export SATELLITE_SIZE_MULT=0.5
-# Metals edge: Hermes primary + Coinbase confirm; session gate; own soft-corr bucket
-export METALS_SERIES=KXGOLD15M,KXSILVER15M
-export METALS_SESSION=1
-export METALS_SOFT_CORR_MAX=2
-export PYTH_PRIMARY_SYMBOLS=XAUUSD,XAGUSD
+# Metals sleeve OFF — keep empty so runner ignores KXGOLD/KXSILVER
+export METALS_SERIES=
+export METALS_SESSION=0
+export PYTH_PRIMARY_SYMBOLS=
+# Pyth still votes on crypto soft confirms
 export PYTH_CONFIRM=1
 export PYTH_HERMES=https://hermes.pyth.network
 # Per-series safety governor: auto-cut cold series, boost hot ones
