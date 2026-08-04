@@ -74,6 +74,8 @@ TAKE_PROFIT_ABS = float(os.environ.get("TAKE_PROFIT_ABS", "0.98"))
 TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
+# Abs/gain TP only for entries at/above this (soft favorites ride to settle).
+TAKE_PROFIT_MIN_ENTRY = float(os.environ.get("TAKE_PROFIT_MIN_ENTRY", "0.88"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
@@ -105,7 +107,7 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
 # Skip only absurd locked books (set 1.0 to never skip on richness)
-SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.97"))
+SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.95"))
 # Soft + fast Binance agree size boost (aggressive when tape confirms)
 SOFT_BN_AGREE_MULT = float(os.environ.get("SOFT_BN_AGREE_MULT", "1.50"))
 SOFT_BN_FLAT_MULT = float(os.environ.get("SOFT_BN_FLAT_MULT", "0.50"))
@@ -231,15 +233,18 @@ def tp_targets_for_entry(entry: float) -> list[tuple[float, str]]:
     """Reachable take-profit (price, reason) pairs, lowest first.
 
     Favorites at 90¢+ cannot 2x on a $1 binary; abs/gain catch near-ceiling spikes.
+    Soft entries below TAKE_PROFIT_MIN_ENTRY skip abs/gain TP and ride to settle
+    (fatter payoff was the monster-hour driver).
     """
     if entry <= 0:
         return []
     out: list[tuple[float, str]] = []
-    if TAKE_PROFIT_ABS > 0:
+    rich_enough = entry >= TAKE_PROFIT_MIN_ENTRY
+    if rich_enough and TAKE_PROFIT_ABS > 0:
         abs_px = min(TAKE_PROFIT_ABS, TAKE_PROFIT_CAP)
         if abs_px > entry:
             out.append((round(abs_px, 4), "abs"))
-    if TAKE_PROFIT_GAIN > 0:
+    if rich_enough and TAKE_PROFIT_GAIN > 0:
         gain_px = round(min(entry + TAKE_PROFIT_GAIN, TAKE_PROFIT_CAP), 4)
         if gain_px > entry:
             out.append((gain_px, "gain"))
@@ -1244,7 +1249,8 @@ def main():
         f"{'abs≥'+format(TAKE_PROFIT_ABS,'.2f') if TAKE_PROFIT_ABS>0 else 'absOFF'}|"
         f"{'gain+'+format(TAKE_PROFIT_GAIN,'.2f') if TAKE_PROFIT_GAIN>0 else 'gainOFF'}|"
         f"{(str(int(TAKE_PROFIT_MULT))+'x') if TAKE_PROFIT_MULT>1 else 'multOFF'} "
-        f"(cap {TAKE_PROFIT_CAP:.2f})  "
+        f"(cap {TAKE_PROFIT_CAP:.2f}"
+        f"{'' if TAKE_PROFIT_MIN_ENTRY<=0 else f', tp≥entry{TAKE_PROFIT_MIN_ENTRY:.2f}'})  "
         f"halt_floor=${HALT_FLOOR:.2f}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"

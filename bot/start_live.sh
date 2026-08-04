@@ -21,10 +21,12 @@ export STOP_LOSS_PCT=0
 export TAKE_PROFIT_ABS=0.98
 export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
+# Soft/mid favorites (<88¢) ride to settle; TP only on richer entries
+export TAKE_PROFIT_MIN_ENTRY=0.88
 export PRICE_LO=0.70
 export PRICE_HI=0.999
-# Skip junk rich favorites (1–3¢ books)
-export SKIP_ENTRY_RICH=0.97
+# Skip thin-margin rich favorites — redeploy into fatter 70–90¢ books
+export SKIP_ENTRY_RICH=0.95
 export MAX_SPREAD=0.20
 export WINDOW_SEC=840
 export MIN_SECS_LEFT=15
