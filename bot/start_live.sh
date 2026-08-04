@@ -15,6 +15,12 @@ export RISK_FRAC_MIN=0.13
 # RATCHET: press Kelly while hot; trailing floor locks gains as HW climbs
 export RISK_FRAC_MAX=0.30
 export EDGE_KELLY_FRAC=0.40
+# Overnight compound: shorter edge window + clip the -$88 outlier so Kelly
+# can press again instead of staying stuck on cut_neg_edge @13%.
+export EDGE_LOOKBACK=12
+export EDGE_PNL_CLIP=20
+# Hard ticket cost cap — the 101-contract ETH nuke must not repeat
+export TICKET_COST_CAP_FRAC=0.28
 # Static floor is the launch pad; 0.70×HW ratchet takes over as book grows
 export HALT_FLOOR=95
 # Trailing floor: ratchets to 70% of realized (flat) high-water — protection
@@ -90,8 +96,9 @@ export SETUP_GOV_HOT_NET=4
 export SETUP_GOV_HOT_MULT=1.30
 export SETUP_GOV_MIN_MULT=0.35
 export SETUP_GOV_MAX_MULT=1.45
-# Skip iced bands entirely; don't let their PnL mute Kelly on hot setups
-export SETUP_GOV_BLOCK_ICE=1
+# Overnight: do NOT hard-skip iced soft/mid — ice mult still cuts size ×0.35,
+# but hard-block was starving the book of the exact pocket that compounded to ~$190.
+export SETUP_GOV_BLOCK_ICE=0
 export SETUP_GOV_BLOCK_ICE_AXES=band
 export SETUP_GOV_EDGE_EXCLUDE_ICED=1
 export SOFT_ENTRY_MAX=0.85

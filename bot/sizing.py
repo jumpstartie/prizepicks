@@ -26,6 +26,9 @@ EDGE_MIN_SAMPLES = int(os.environ.get("EDGE_MIN_SAMPLES", "8"))
 EDGE_KELLY_FRAC = float(os.environ.get("EDGE_KELLY_FRAC", "0.33"))  # ~0.33 Kelly
 EDGE_PRIOR_WR = float(os.environ.get("EDGE_PRIOR_WR", "0.93"))
 EDGE_PRIOR_STRENGTH = float(os.environ.get("EDGE_PRIOR_STRENGTH", "12"))  # pseudo-counts
+# Cap single-trade |pnl| inside the Kelly/EV sample so one oversized loser
+# (e.g. -$88 ETH) can't pin risk at RISK_FRAC_MIN forever.
+EDGE_PNL_CLIP = float(os.environ.get("EDGE_PNL_CLIP", "0"))  # 0 = off
 # 1 full-loss buffer to the raised floor so MAX risk can still bind near ~$70
 HALT_LOSS_BUFFER = int(os.environ.get("HALT_LOSS_BUFFER", "1"))
 MAX_EXPOSURE_FRAC = 0.60
@@ -85,6 +88,11 @@ def estimate_edge(closed: list[dict],
             kelly=0.0, risk_frac=_clamp(base), reason="prior_no_samples",
         )
 
+    def _clip_pnl(p: float) -> float:
+        if EDGE_PNL_CLIP > 0:
+            return max(-EDGE_PNL_CLIP, min(EDGE_PNL_CLIP, p))
+        return p
+
     wins_rows = [r for r in rows if (r.get("pnl") or 0) > 0]
     loss_rows = [r for r in rows if (r.get("pnl") or 0) <= 0]
     wins = len(wins_rows)
@@ -94,16 +102,16 @@ def estimate_edge(closed: list[dict],
 
     avg_entry = sum(float(r.get("entry") or AVG_ENTRY) for r in rows) / n
     if wins_rows:
-        avg_win = sum(float(r["pnl"]) for r in wins_rows) / len(wins_rows)
+        avg_win = sum(_clip_pnl(float(r["pnl"])) for r in wins_rows) / len(wins_rows)
     else:
         avg_win = 0.0
     if loss_rows:
-        avg_loss = abs(sum(float(r["pnl"]) for r in loss_rows) / len(loss_rows))
+        avg_loss = abs(sum(_clip_pnl(float(r["pnl"])) for r in loss_rows) / len(loss_rows))
     else:
         avg_loss = 0.0
 
-    # Per-trade EV on the recent sample (unshrunk dollars)
-    ev = sum(float(r["pnl"]) for r in rows) / n
+    # Per-trade EV on the recent sample (unshrunk dollars, optionally clipped)
+    ev = sum(_clip_pnl(float(r["pnl"])) for r in rows) / n
 
     # Binary favorite Kelly on bankroll fraction:
     #   risk stake S; win +(1-e)/e * S; lose -S
