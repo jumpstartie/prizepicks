@@ -85,6 +85,10 @@ SPIKE_FADE = os.environ.get("SPIKE_FADE", "1").lower() in ("1", "true", "yes", "
 SPIKE_PEAK = float(os.environ.get("SPIKE_PEAK", "0.93"))
 SPIKE_GIVEBACK = float(os.environ.get("SPIKE_GIVEBACK", "0.06"))
 SPIKE_MIN_GAIN = float(os.environ.get("SPIKE_MIN_GAIN", "0.03"))
+# Hard per-ticket cost ceiling — size mults must never stack past this
+# fraction of equity, nor past the room above the halt floor (one loss
+# can't breach the floor). Fixes the 46%-of-book ETH ticket.
+TICKET_COST_CAP_FRAC = float(os.environ.get("TICKET_COST_CAP_FRAC", "0.30"))
 # Whale harvest: when MARKED equity spikes ≥ trigger×flat-baseline, sell all
 # winning opens (mark ≥ min) into the bid — converts phantom marks to cash so
 # the trailing floor can ratchet on the spike instead of watching it fade.
@@ -822,6 +826,14 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     unit = sizing.contracts_for_equity(
         st.equity, entry, size_mult=mult, risk_frac=risk_frac,
     )
+    # Absolute ticket ceiling: min(cap frac of equity, room above the floor).
+    room = max(0.0, st.equity - effective_floor(st))
+    cost_cap = min(TICKET_COST_CAP_FRAC * st.equity, room) if room > 0 else 0.0
+    if cost_cap > 0 and unit * entry > cost_cap:
+        capped_unit = max(0.0, round(cost_cap / entry, 2))
+        log(f"ticket cap {ticker}: {unit:.2f}→{capped_unit:.2f} contracts "
+            f"(cost ≤ ${cost_cap:.2f}: cap {TICKET_COST_CAP_FRAC:.0%}, room ${room:.2f})")
+        unit = capped_unit
     if unit <= 0:
         return
     # Already in this market?
