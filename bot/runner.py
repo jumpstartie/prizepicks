@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
-from bot import metals, series_gov, time_phase
+from bot import metals, series_gov, setup_gov, time_phase
 from bot import sizing
 from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
 
@@ -188,6 +188,8 @@ class Position:
     edge_wr: float | None = None
     edge_reason: str = ""
     mark_at_fill: float | None = None
+    setup_tag: str = ""          # setup_gov decision tag at entry
+    setup_keys: str = ""         # band|lead|phase|asset keys at entry
 
 
 @dataclass
@@ -752,6 +754,24 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if gov_mult != 1.0:
         mult *= gov_mult
         mult_tag = f"{mult_tag}+{gov_tag}" if mult_tag else gov_tag
+    # Quant notch: size from how *this setup* (band/lead/phase/asset) has been doing
+    lead_dir = ""
+    if LEAD_FEED is not None:
+        _sig = (LEAD_FEED.signal_fast(ticker) if entry < SOFT_ENTRY_MAX
+                else LEAD_FEED.signal(ticker))
+        if _sig is not None:
+            lead_dir = _sig.direction or ""
+    setup_mult, setup_tag, setup_keys = setup_gov.setup_risk_mult(
+        st.closed,
+        entry=entry,
+        side=side,
+        secs_left=secs_left,
+        binance_dir=lead_dir,
+        ticker=ticker,
+    )
+    if setup_mult != 1.0:
+        mult *= setup_mult
+        mult_tag = f"{mult_tag}+{setup_tag}" if mult_tag else setup_tag
     if MAX_SIZE_MULT > 0 and mult > MAX_SIZE_MULT:
         mult_tag = f"{mult_tag}+cap×{MAX_SIZE_MULT:g}"
         mult = MAX_SIZE_MULT
@@ -796,6 +816,7 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     else:
         lead = None
     tp = tp_price_for_entry(entry)
+    keys_str = "|".join(f"{k}:{v}" for k, v in setup_keys.items())
     pos = Position(
         ticker=ticker, series=m.get("event_ticker", series_root(ticker)),
         side=side, contracts=unit, entry=entry, cost=cost,
@@ -803,9 +824,10 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         last_at_signal=last_at, tp_price=tp,
         signal_mid=mid, signal_spread=spr, secs_left_at_entry=secs_left,
         binance_ret=(lead.ret_pct if lead else None),
-        binance_dir=(lead.direction if lead else ""),
+        binance_dir=(lead.direction if lead else lead_dir),
         binance_confirmed=(lead.confirmed if lead else None),
         risk_frac=risk_frac, edge_wr=edge.wr, edge_reason=edge.reason,
+        setup_tag=setup_tag, setup_keys=keys_str,
     )
 
     if st.mode == "live":
@@ -1456,6 +1478,7 @@ def main():
         f"late≤{time_phase.LATE_WINDOW_SEC:.0f}s≠≥{time_phase.LATE_RICH_ENTRY:g}/"
         f"prior_bias={'ON' if time_phase.PRIOR_DIR_BIAS else 'OFF'}  "
         f"{series_gov.describe()}  "
+        f"{setup_gov.describe()}  "
         f"stage_size={'ON' if STAGE_SIZE else 'OFF'}  "
         f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
         f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "
@@ -1466,6 +1489,12 @@ def main():
         tgt = st.start_equity + HALT_PROFIT
         log(f"profit pause armed: halt new entries at equity >= ${tgt:.2f} "
             f"(+${HALT_PROFIT:.2f} from start ${st.start_equity:.2f})")
+    if setup_gov.ENABLED:
+        axis_lines = setup_gov.summarize_axes(st.closed)
+        if axis_lines:
+            log("setup_gov axes: " + " | ".join(axis_lines[:8]))
+        else:
+            log("setup_gov axes: warming (need more classified closes)")
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0
