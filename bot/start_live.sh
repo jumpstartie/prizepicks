@@ -45,10 +45,10 @@ export CONFIRM_POLLS=1
 export POLL_SEC=1.0
 export MAX_CONCURRENT=8
 export MAX_EXPOSURE_FRAC=0.85
-# Core = best WR names (ETH 28-0, XRP 94%, BNB 96%); SOL demoted after 4-5 −$17 chop
-export SERIES=KXBNB15M,KXXRP15M,KXETH15M
-# Satellites: crypto alts + new Pyth-settled metals 15m (Hermes primary lean)
-export SATELLITE_SERIES=KXBTC15M,KXSOL15M,KXDOGE15M,KXNEAR15M,KXGOLD15M,KXSILVER15M
+# Core = printers (ETH/XRP/BNB + BTC promoted). SOL/NEAR cut after 12h drain.
+export SERIES=KXBNB15M,KXXRP15M,KXETH15M,KXBTC15M
+# Satellites: DOGE + Pyth metals only (SOL/NEAR removed to free risk budget)
+export SATELLITE_SERIES=KXDOGE15M,KXGOLD15M,KXSILVER15M
 export SATELLITE_SIZE_MULT=0.5
 # Metals edge: Hermes primary + Coinbase confirm; session gate; own soft-corr bucket
 export METALS_SERIES=KXGOLD15M,KXSILVER15M
@@ -79,9 +79,13 @@ export SETUP_GOV_ICE_NET=-10
 export SETUP_GOV_ICE_MULT=0.35
 export SETUP_GOV_HOT_WR=0.90
 export SETUP_GOV_HOT_NET=4
-export SETUP_GOV_HOT_MULT=1.20
+export SETUP_GOV_HOT_MULT=1.30
 export SETUP_GOV_MIN_MULT=0.35
-export SETUP_GOV_MAX_MULT=1.35
+export SETUP_GOV_MAX_MULT=1.45
+# Skip iced bands entirely; don't let their PnL mute Kelly on hot setups
+export SETUP_GOV_BLOCK_ICE=1
+export SETUP_GOV_BLOCK_ICE_AXES=band
+export SETUP_GOV_EDGE_EXCLUDE_ICED=1
 export SOFT_ENTRY_MAX=0.85
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
@@ -104,8 +108,8 @@ export PRIOR_DIR_DISAGREE_MULT=0.50
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.50
 export SOFT_BN_FLAT_MULT=0.50
-# Never let stacked boosts (BN×early×hot) exceed 1.5× base size
-export MAX_SIZE_MULT=1.50
+# Stack cap: room for hot setup × BN agree without going nuclear
+export MAX_SIZE_MULT=1.65
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=900
 export LOSS_COOLDOWN_RISK_MULT=0.50

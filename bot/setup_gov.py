@@ -47,6 +47,20 @@ HOT_MULT = float(os.environ.get("SETUP_GOV_HOT_MULT", "1.20"))
 MIN_MULT = float(os.environ.get("SETUP_GOV_MIN_MULT", "0.35"))
 MAX_MULT = float(os.environ.get("SETUP_GOV_MAX_MULT", "1.35"))
 
+# When an axis is iced, skip new entries on that axis (frees book for hot setups).
+BLOCK_ICE = os.environ.get("SETUP_GOV_BLOCK_ICE", "1").lower() in (
+    "1", "true", "yes", "on",
+)
+BLOCK_ICE_AXES = tuple(
+    a.strip().lower()
+    for a in os.environ.get("SETUP_GOV_BLOCK_ICE_AXES", "band").split(",")
+    if a.strip()
+)
+# Drop iced-band closes from Kelly sample so soft ice doesn't mute mid/rich risk.
+EDGE_EXCLUDE_ICED = os.environ.get("SETUP_GOV_EDGE_EXCLUDE_ICED", "1").lower() in (
+    "1", "true", "yes", "on",
+)
+
 METALS_PREFIXES = tuple(
     s.strip().upper()
     for s in os.environ.get("METALS_SERIES", "KXGOLD15M,KXSILVER15M").split(",")
@@ -172,6 +186,65 @@ def _axis_mult(pnls: list[float], key: str) -> tuple[float, str]:
     return 1.0, ""
 
 
+def iced_keys(closed: list[dict], axes: Iterable[str] | None = None) -> dict[str, str]:
+    """Return {axis_key: tag} for setups currently in ice state."""
+    axes = tuple(axes) if axes is not None else AXES
+    out: dict[str, str] = {}
+    # Evaluate canonical keys per axis
+    candidates = {
+        "band": ("band_soft", "band_mid", "band_rich"),
+        "lead": ("lead_agree", "lead_flat", "lead_disagree"),
+        "phase": ("phase_early", "phase_mid", "phase_late"),
+        "asset": ("asset_crypto", "asset_metals"),
+    }
+    for axis in axes:
+        for key in candidates.get(axis, ()):
+            pnls = _pnl_sample(closed, key)
+            m, tag = _axis_mult(pnls, key)
+            if tag and ":ice" in tag:
+                out[key] = tag
+    return out
+
+
+def should_block_entry(
+    closed: list[dict],
+    *,
+    entry: float,
+    side: str,
+    secs_left: float | None,
+    binance_dir: str | None,
+    ticker: str = "",
+) -> tuple[bool, str]:
+    """True = skip. Blocks tickets whose BLOCK_ICE_AXES key is currently iced."""
+    if not ENABLED or not BLOCK_ICE:
+        return False, ""
+    keys = classify_keys(entry, side, secs_left, binance_dir, ticker)
+    iced = iced_keys(closed, BLOCK_ICE_AXES)
+    if not iced:
+        return False, ""
+    for axis in BLOCK_ICE_AXES:
+        key = keys.get(axis)
+        if key and key in iced:
+            return True, iced[key]
+    return False, ""
+
+
+def filter_closed_for_edge(closed: list[dict]) -> list[dict]:
+    """Exclude closes from currently iced bands so Kelly tracks tradable setups."""
+    if not ENABLED or not EDGE_EXCLUDE_ICED:
+        return closed
+    iced = iced_keys(closed, ("band",))
+    if not iced:
+        return closed
+    out = []
+    for c in closed:
+        k = band_key(float(c.get("entry") or 0))
+        if k in iced:
+            continue
+        out.append(c)
+    return out if out else closed
+
+
 def setup_risk_mult(
     closed: list[dict],
     *,
@@ -240,5 +313,7 @@ def describe() -> str:
         f"setup_gov=last{N}/min{MIN_SAMPLE} axes={','.join(AXES)} "
         f"ice≤{ICE_NET:g}×{ICE_MULT:g} cold≤{COLD_NET:g}×{COLD_MULT:g} "
         f"hot≥{100*HOT_WR:.0f}%&+{HOT_NET:g}×{HOT_MULT:g} "
-        f"clamp[{MIN_MULT:g},{MAX_MULT:g}]"
+        f"clamp[{MIN_MULT:g},{MAX_MULT:g}] "
+        f"block_ice={'/'.join(BLOCK_ICE_AXES) if BLOCK_ICE else 'OFF'} "
+        f"edge_ex_ice={'ON' if EDGE_EXCLUDE_ICED else 'OFF'}"
     )

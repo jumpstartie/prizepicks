@@ -761,6 +761,21 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
                 else LEAD_FEED.signal(ticker))
         if _sig is not None:
             lead_dir = _sig.direction or ""
+    block_ice, why_ice = setup_gov.should_block_entry(
+        st.closed,
+        entry=entry,
+        side=side,
+        secs_left=secs_left,
+        binance_dir=lead_dir,
+        ticker=ticker,
+    )
+    if block_ice:
+        log(f"skip {ticker}: setup ice block ({why_ice})")
+        append_trade_log({
+            "event": "skip_setup_ice", "ticker": ticker, "side": side,
+            "entry": entry, "reason": why_ice,
+        })
+        return
     setup_mult, setup_tag, setup_keys = setup_gov.setup_risk_mult(
         st.closed,
         entry=entry,
@@ -775,8 +790,10 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     if MAX_SIZE_MULT > 0 and mult > MAX_SIZE_MULT:
         mult_tag = f"{mult_tag}+cap×{MAX_SIZE_MULT:g}"
         mult = MAX_SIZE_MULT
+    # Kelly on tradable setups only — iced soft won't mute mid/rich risk
+    edge_closed = setup_gov.filter_closed_for_edge(st.closed)
     risk_frac, edge = sizing.effective_risk_fraction(
-        st.equity, closed=st.closed, entry=entry, floor=effective_floor(st),
+        st.equity, closed=edge_closed, entry=entry, floor=effective_floor(st),
     )
     cd_mult = cooldown_risk_mult()
     if cd_mult < 1:
