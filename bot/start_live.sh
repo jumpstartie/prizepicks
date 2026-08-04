@@ -28,6 +28,12 @@ export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
 # Soft/mid favorites (<88¢) ride to settle; TP only on richer entries
 export TAKE_PROFIT_MIN_ENTRY=0.88
+# Whale harvest: marked-equity spike ≥1.25× flat baseline → sell winners ≥90¢
+# into strength, so the trailing floor ratchets on spikes instead of missing them
+export EQUITY_HARVEST=1
+export HARVEST_TRIGGER_FRAC=1.25
+export HARVEST_MIN_MARK=0.90
+export HARVEST_COOLDOWN_SEC=300
 # But lock near-certain soft spikes at 97¢, and sell if a ≥93¢ peak fades 6¢+
 export SOFT_SPIKE_TP=0.97
 export SPIKE_FADE=1
