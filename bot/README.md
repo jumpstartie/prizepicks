@@ -13,9 +13,10 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ## $20 test sizing (edge-aware)
 
 ```
-bankroll≈$69 (post +$50 pause)
-risk/trade ≈ 10–25% of equity (EDGE_SIZING), halt floor $40
-soft favorites (<85¢) sized ×0.5 (no extra early cut)
+bankroll≈$70+ (max-frequency #3 full size)
+risk/trade ≈ 10–25% of equity (EDGE_SIZING), halt floor $50
+soft-entry size cut OFF (SOFT_ENTRY_SIZE_MULT=1.0)
+optional HALT_PROFIT=+50 from start_equity baseline
 stop-loss OFF — hold favorites to settlement / spike TP ≥ 0.995
 binance lead ON (ws + filter)
 ```
@@ -56,10 +57,10 @@ START_EQUITY=20 MODE=live \
 | `MAX_SPREAD` | `0.20` | skip if yes ask−bid wider than this |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
-| `HALT_FLOOR` | `40.0` | stop the run if equity ≤ this ($) |
+| `HALT_FLOOR` | `50.0` | stop the run if equity ≤ this ($) |
 | `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
-| `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut |
-| `SOFT_ENTRY_SIZE_MULT` | `0.50` | multiplier for soft favorites |
+| `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut when mult&lt;1 |
+| `SOFT_ENTRY_SIZE_MULT` | `1.0` | soft-favorite multiplier (1.0 = #3 full size) |
 | `SOFT_ENTRY_EARLY_SECS` | `300` | extra soft cut if more than this many secs left |
 | `SOFT_ENTRY_EARLY_MULT` | `1.0` | extra soft+early multiplier (1.0 = off) |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |

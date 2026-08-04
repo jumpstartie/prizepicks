@@ -75,15 +75,14 @@ TAKE_PROFIT_GAIN = float(os.environ.get("TAKE_PROFIT_GAIN", "0"))
 TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
-HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "40.0"))
+HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "50.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
-# Soft favorites (below researched late band): keep trading but cut size.
-# Early-window soft entries get an extra cut (correlated flip risk).
+# Soft favorites: SIZE_MULT=1.0 disables the cut (strategy #3 full max-frequency).
 SOFT_ENTRY_MAX = float(os.environ.get("SOFT_ENTRY_MAX", "0.85"))
-SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "0.50"))
+SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "1.0"))
 SOFT_ENTRY_EARLY_SECS = float(os.environ.get("SOFT_ENTRY_EARLY_SECS", "300"))
-# 1.0 = disabled. Keep soft favorites at half size; no extra early cut.
+# 1.0 = disabled.
 SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "1.0"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
