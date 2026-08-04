@@ -40,7 +40,7 @@ SERIES = [
 # Optional half-size satellites (also scanned for signals)
 SATELLITE_SERIES = set(
     s.strip()
-    for s in os.environ.get("SATELLITE_SERIES", "KXBTC15M,KXDOGE15M").split(",")
+    for s in os.environ.get("SATELLITE_SERIES", "KXBTC15M").split(",")
     if s.strip()
 )
 SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
@@ -105,7 +105,10 @@ MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXP
 if os.environ.get("RISK_FRACTION"):
     sizing.RISK_FRACTION = float(os.environ["RISK_FRACTION"])
 # Skip only absurd locked books (set 1.0 to never skip on richness)
-SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.999"))
+SKIP_ENTRY_RICH = float(os.environ.get("SKIP_ENTRY_RICH", "0.97"))
+# Soft + fast Binance agree size boost (aggressive when tape confirms)
+SOFT_BN_AGREE_MULT = float(os.environ.get("SOFT_BN_AGREE_MULT", "1.25"))
+SOFT_BN_FLAT_MULT = float(os.environ.get("SOFT_BN_FLAT_MULT", "0.50"))
 # Max yes-spread (ask-bid) to enter; wide books = adverse selection
 MAX_SPREAD = float(os.environ.get("MAX_SPREAD", "0.20"))
 # Binance lead: lean/filter Kalshi YES/NO using spot direction (XRP/BNB/SOL…)
@@ -427,8 +430,10 @@ def series_root(ticker: str) -> str:
 
 
 def size_mult_for(ticker: str, entry: float | None = None,
-                  secs_left: float | None = None) -> tuple[float, str]:
-    """Position size multiplier + reason tag (satellite / soft / staged cuts)."""
+                  secs_left: float | None = None,
+                  bn_size_mult: float = 1.0,
+                  bn_tag: str = "") -> tuple[float, str]:
+    """Position size multiplier + reason tag (satellite / soft / staged / BN)."""
     mult = SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
     tags: list[str] = []
     if series_root(ticker) in SATELLITE_SERIES:
@@ -440,13 +445,18 @@ def size_mult_for(ticker: str, entry: float | None = None,
                 and SOFT_ENTRY_EARLY_MULT < 1):
             mult *= SOFT_ENTRY_EARLY_MULT
             tags.append(f"early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}")
-    if STAGE_SIZE and secs_left is not None:
+    # Stage by time only on soft favorites — don't cut rich/late winners.
+    if (STAGE_SIZE and entry is not None and entry < SOFT_ENTRY_MAX
+            and secs_left is not None):
         if secs_left > 600 and STAGE_SIZE_10M_MULT < 1:
             mult *= STAGE_SIZE_10M_MULT
             tags.append(f"stage>10m×{STAGE_SIZE_10M_MULT:g}")
         elif secs_left > 300 and STAGE_SIZE_5M_MULT < 1:
             mult *= STAGE_SIZE_5M_MULT
             tags.append(f"stage>5m×{STAGE_SIZE_5M_MULT:g}")
+    if bn_size_mult != 1.0:
+        mult *= bn_size_mult
+        tags.append(bn_tag or f"bn×{bn_size_mult:g}")
     return mult, ("+".join(tags) if tags else "full")
 
 
@@ -454,18 +464,18 @@ def soft_open_count(st: State) -> int:
     return sum(1 for p in st.open_positions if (p.entry or 0) < SOFT_ENTRY_MAX)
 
 
-def soft_binance_ok(ticker: str, side: str, entry: float) -> tuple[bool, str]:
-    """Soft favorites use the fast Binance window.
+def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float, str]:
+    """Soft favorites: fast-window Binance gate + asymmetric size.
 
-    Aggressive mode: block only on short-horizon *disagree*. Flat is allowed so
-    we keep firing; same-way lean is preferred but not required.
+    Returns (allow, size_mult, reason_tag).
+      agree  → SOFT_BN_AGREE_MULT (default 1.25×)
+      flat   → SOFT_BN_FLAT_MULT (default 0.50×)
+      disagree → block
     """
     if entry >= SOFT_ENTRY_MAX or not SOFT_BINANCE_STRICT:
-        return True, "ok"
+        return True, 1.0, ""
     if not _lead_active() or LEAD_FEED is None:
-        return True, "no_lead"
-    # Prefer lean on the fast window; if flat, still allow (test limits).
-    # Only hard-block when the short-horizon tape disagrees with our side.
+        return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}(no_lead)"
     ok, sig, reason = LEAD_FEED.agrees(
         ticker, side,
         require_lean=False,
@@ -473,14 +483,14 @@ def soft_binance_ok(ticker: str, side: str, entry: float) -> tuple[bool, str]:
         window_sec=LEAD_FEED.fast_window_sec,
         base_threshold=LEAD_FEED.fast_threshold,
     )
+    detail = "n/a" if sig is None else (
+        f"{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
+    )
     if not ok:
-        detail = "n/a" if sig is None else (
-            f"{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
-        )
-        return False, f"{reason}:{detail}"
+        return False, 0.0, f"{reason}:{detail}"
     if sig is not None and sig.direction != "flat":
-        return True, f"soft_bn_fast_agree:{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
-    return True, f"soft_bn_fast_flat_allow:{reason}"
+        return True, SOFT_BN_AGREE_MULT, f"bnagree×{SOFT_BN_AGREE_MULT:g}:{detail}"
+    return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}"
 
 
 def cooldown_risk_mult() -> float:
@@ -553,7 +563,7 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         append_trade_log({"event": "skip_mispricing", "ticker": ticker,
                           "side": side, "entry": entry, "reason": why_m})
         return
-    ok_bn, why_bn = soft_binance_ok(ticker, side, entry)
+    ok_bn, bn_mult, why_bn = soft_binance_gate(ticker, side, entry)
     if not ok_bn:
         log(f"skip {ticker}: soft Binance gate ({why_bn})")
         append_trade_log({"event": "skip_soft_binance", "ticker": ticker,
@@ -572,7 +582,10 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         append_trade_log({"event": "skip_soft_corr", "ticker": ticker,
                           "side": side, "entry": entry, "cap": SOFT_CORR_MAX})
         return
-    mult, mult_tag = size_mult_for(ticker, entry=entry, secs_left=secs_left)
+    mult, mult_tag = size_mult_for(
+        ticker, entry=entry, secs_left=secs_left,
+        bn_size_mult=bn_mult, bn_tag=why_bn,
+    )
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
     )
@@ -607,7 +620,12 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
 
     mid = mid_of(m)
     spr = book_spread(m)
-    lead = LEAD_FEED.signal(ticker) if LEAD_FEED is not None else None
+    if LEAD_FEED is not None and entry < SOFT_ENTRY_MAX:
+        lead = LEAD_FEED.signal_fast(ticker)
+    elif LEAD_FEED is not None:
+        lead = LEAD_FEED.signal(ticker)
+    else:
+        lead = None
     tp = tp_price_for_entry(entry)
     pos = Position(
         ticker=ticker, series=m.get("event_ticker", series_root(ticker)),

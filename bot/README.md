@@ -52,7 +52,9 @@ START_EQUITY=20 MODE=live \
 | `MIN_SECS_LEFT` | `15` | no new entries inside final 15s |
 | `CONFIRM_POLLS` | `1` | polls required in-band (1 = faster entries) |
 | `PRICE_LO` / `PRICE_HI` | `0.70` / `0.999` | any clear favorite (max frequency) |
-| `SKIP_ENTRY_RICH` | `0.999` | skip only fully locked books |
+| `SKIP_ENTRY_RICH` | `0.97` | skip rich favorites at/above this entry |
+| `SOFT_BN_AGREE_MULT` | `1.25` | soft-entry size when fast Binance agrees |
+| `SOFT_BN_FLAT_MULT` | `0.50` | soft-entry size when fast Binance is flat |
 | `MAX_SPREAD` | `0.20` | skip if yes ask−bid wider than this |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
@@ -64,7 +66,7 @@ START_EQUITY=20 MODE=live \
 | `SOFT_ENTRY_EARLY_MULT` | `1.0` | extra soft+early multiplier (1.0 = off) |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
 | `EDGE_SIZING` | `1` | dynamic risk from live edge |
-| `RISK_FRAC_MIN` / `MAX` | `0.10` / `0.25` | hard band for edge sizer |
+| `RISK_FRAC_MIN` / `MAX` | `0.13` / `0.25` | hard band for edge sizer |
 | `EDGE_LOOKBACK` | `30` | recent filled closes for WR/EV |
 | `EDGE_MIN_SAMPLES` | `8` | below this, blend toward base risk |
 | `EDGE_KELLY_FRAC` | `0.25` | fraction of full Kelly to use |

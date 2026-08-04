@@ -18,7 +18,7 @@ WIN_RATE = 0.95
 
 # Risk controls for a ~$20 test account (profit-first sizing)
 RISK_FRACTION = 0.18              # base ~$3.8/trade; overridden by edge sizer
-RISK_FRAC_MIN = float(os.environ.get("RISK_FRAC_MIN", "0.10"))   # ~$6.9 on $69
+RISK_FRAC_MIN = float(os.environ.get("RISK_FRAC_MIN", "0.13"))   # keep overnight size from collapsing
 RISK_FRAC_MAX = float(os.environ.get("RISK_FRAC_MAX", "0.25"))   # modest bump off 0.22
 EDGE_SIZING = os.environ.get("EDGE_SIZING", "1").lower() in ("1", "true", "yes", "on")
 EDGE_LOOKBACK = int(os.environ.get("EDGE_LOOKBACK", "30"))       # recent filled closes
