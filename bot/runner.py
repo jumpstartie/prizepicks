@@ -77,6 +77,14 @@ TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Abs/gain TP only for entries at/above this (soft favorites ride to settle).
 TAKE_PROFIT_MIN_ENTRY = float(os.environ.get("TAKE_PROFIT_MIN_ENTRY", "0.88"))
+# Soft entries still lock a near-certain spike at this mark (0 = off).
+SOFT_SPIKE_TP = float(os.environ.get("SOFT_SPIKE_TP", "0.97"))
+# Spike-fade guard: once a position's mark peaks ≥ SPIKE_PEAK, sell if it
+# gives back ≥ SPIKE_GIVEBACK while still ≥ entry + SPIKE_MIN_GAIN.
+SPIKE_FADE = os.environ.get("SPIKE_FADE", "1").lower() in ("1", "true", "yes", "on")
+SPIKE_PEAK = float(os.environ.get("SPIKE_PEAK", "0.93"))
+SPIKE_GIVEBACK = float(os.environ.get("SPIKE_GIVEBACK", "0.06"))
+SPIKE_MIN_GAIN = float(os.environ.get("SPIKE_MIN_GAIN", "0.03"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
@@ -162,6 +170,7 @@ class Position:
     exit_price: float | None = None
     exit_order_id: str = ""
     tp_price: float | None = None  # entry * TAKE_PROFIT_MULT, if reachable (<= cap)
+    peak_mark: float | None = None  # highest mark seen while open (spike-fade)
     # Quant instrumentation
     signal_mid: float | None = None
     signal_spread: float | None = None
@@ -280,6 +289,10 @@ def tp_targets_for_entry(entry: float) -> list[tuple[float, str]]:
         abs_px = min(TAKE_PROFIT_ABS, TAKE_PROFIT_CAP)
         if abs_px > entry:
             out.append((round(abs_px, 4), "abs"))
+    if not rich_enough and SOFT_SPIKE_TP > 0:
+        spike_px = min(SOFT_SPIKE_TP, TAKE_PROFIT_CAP)
+        if spike_px > entry:
+            out.append((round(spike_px, 4), "soft_spike"))
     if rich_enough and TAKE_PROFIT_GAIN > 0:
         gain_px = round(min(entry + TAKE_PROFIT_GAIN, TAKE_PROFIT_CAP), 4)
         if gain_px > entry:
@@ -930,7 +943,7 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
     if p.settled or not p.filled:
         return
     exit_px = mark
-    label = "STOP" if reason == "stop" else "TAKE PROFIT"
+    label = {"stop": "STOP", "spike_fade": "SPIKE FADE"}.get(reason, "TAKE PROFIT")
     if st.mode == "live":
         try:
             if p.side == "yes":
@@ -1000,6 +1013,8 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
         mark = side_mark(m, p.side)
         if mark is None:
             continue
+        if p.peak_mark is None or mark > p.peak_mark:
+            p.peak_mark = mark
 
         # Take-profit: near-ceiling spike, +gain from entry, or Nx on cheap entries
         hit = tp_hit(p.entry, mark)
@@ -1008,6 +1023,17 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
             log(f"tp trigger {p.ticker} {p.side} entry={p.entry:.2f} mark={mark:.2f} "
                 f"target={tp:.2f} ({reason})")
             close_position_exit(client, st, p, mark, "take_profit")
+            continue
+
+        # Spike-fade guard: lock gains if a big spike starts reverting.
+        if (SPIKE_FADE and p.peak_mark is not None
+                and p.peak_mark >= SPIKE_PEAK
+                and mark <= p.peak_mark - SPIKE_GIVEBACK
+                and mark >= p.entry + SPIKE_MIN_GAIN
+                and secs_left > STOP_DISABLE_SECS):
+            log(f"spike fade {p.ticker} {p.side} entry={p.entry:.2f} "
+                f"peak={p.peak_mark:.2f} mark={mark:.2f} — locking gain")
+            close_position_exit(client, st, p, mark, "spike_fade")
             continue
 
         # Stop-loss (off when STOP_LOSS_PCT <= 0); also disabled in final minute
@@ -1358,7 +1384,9 @@ def main():
         f"{'gain+'+format(TAKE_PROFIT_GAIN,'.2f') if TAKE_PROFIT_GAIN>0 else 'gainOFF'}|"
         f"{(str(int(TAKE_PROFIT_MULT))+'x') if TAKE_PROFIT_MULT>1 else 'multOFF'} "
         f"(cap {TAKE_PROFIT_CAP:.2f}"
-        f"{'' if TAKE_PROFIT_MIN_ENTRY<=0 else f', tp≥entry{TAKE_PROFIT_MIN_ENTRY:.2f}'})  "
+        f"{'' if TAKE_PROFIT_MIN_ENTRY<=0 else f', tp≥entry{TAKE_PROFIT_MIN_ENTRY:.2f}'}"
+        f"{f', soft_spike≥{SOFT_SPIKE_TP:.2f}' if SOFT_SPIKE_TP>0 else ''}"
+        f"{f', fade@{SPIKE_PEAK:.2f}-{SPIKE_GIVEBACK:.2f}' if SPIKE_FADE else ''})  "
         f"halt_floor=${HALT_FLOOR:.2f}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"

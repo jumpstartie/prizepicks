@@ -24,6 +24,12 @@ export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
 # Soft/mid favorites (<88¢) ride to settle; TP only on richer entries
 export TAKE_PROFIT_MIN_ENTRY=0.88
+# But lock near-certain soft spikes at 97¢, and sell if a ≥93¢ peak fades 6¢+
+export SOFT_SPIKE_TP=0.97
+export SPIKE_FADE=1
+export SPIKE_PEAK=0.93
+export SPIKE_GIVEBACK=0.06
+export SPIKE_MIN_GAIN=0.03
 export PRICE_LO=0.70
 export PRICE_HI=0.999
 # Skip thin-margin rich favorites — redeploy into fatter 70–90¢ books
