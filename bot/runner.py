@@ -85,6 +85,13 @@ SPIKE_FADE = os.environ.get("SPIKE_FADE", "1").lower() in ("1", "true", "yes", "
 SPIKE_PEAK = float(os.environ.get("SPIKE_PEAK", "0.93"))
 SPIKE_GIVEBACK = float(os.environ.get("SPIKE_GIVEBACK", "0.06"))
 SPIKE_MIN_GAIN = float(os.environ.get("SPIKE_MIN_GAIN", "0.03"))
+# Whale harvest: when MARKED equity spikes ≥ trigger×flat-baseline, sell all
+# winning opens (mark ≥ min) into the bid — converts phantom marks to cash so
+# the trailing floor can ratchet on the spike instead of watching it fade.
+EQUITY_HARVEST = os.environ.get("EQUITY_HARVEST", "1").lower() in ("1", "true", "yes", "on")
+HARVEST_TRIGGER_FRAC = float(os.environ.get("HARVEST_TRIGGER_FRAC", "1.25"))
+HARVEST_MIN_MARK = float(os.environ.get("HARVEST_MIN_MARK", "0.90"))
+HARVEST_COOLDOWN_SEC = float(os.environ.get("HARVEST_COOLDOWN_SEC", "300"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
 # Trailing floor: ratchet to this fraction of realized (flat) high-water.
@@ -1039,7 +1046,8 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
     if p.settled or not p.filled:
         return
     exit_px = mark
-    label = {"stop": "STOP", "spike_fade": "SPIKE FADE"}.get(reason, "TAKE PROFIT")
+    label = {"stop": "STOP", "spike_fade": "SPIKE FADE",
+             "whale_harvest": "WHALE HARVEST"}.get(reason, "TAKE PROFIT")
     if st.mode == "live":
         try:
             if p.side == "yes":
@@ -1091,9 +1099,42 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
     st.save()
 
 
+_LAST_HARVEST_TS = 0.0
+
+
+def whale_harvest(client: KalshiClient, st: State,
+                  marks: list[tuple[Position, float]]) -> bool:
+    """Convert a marked-equity spike into flat cash (floor can then ratchet)."""
+    global _LAST_HARVEST_TS
+    if not EQUITY_HARVEST or not marks:
+        return False
+    now = time.time()
+    if now - _LAST_HARVEST_TS < HARVEST_COOLDOWN_SEC:
+        return False
+    marked_eq = st.cash + sum(mk * p.contracts for p, mk in marks)
+    baseline = max(st.high_water or 0.0, st.cash)
+    if baseline <= 0 or marked_eq < baseline * HARVEST_TRIGGER_FRAC:
+        return False
+    winners = [(p, mk) for p, mk in marks
+               if mk >= HARVEST_MIN_MARK and mk > p.entry]
+    if not winners:
+        return False
+    _LAST_HARVEST_TS = now
+    log(f"WHALE HARVEST trigger: marked=${marked_eq:.2f} ≥ "
+        f"{HARVEST_TRIGGER_FRAC:g}× baseline ${baseline:.2f} — "
+        f"selling {len(winners)} winners ≥{HARVEST_MIN_MARK:.2f}")
+    append_trade_log({"event": "whale_harvest_trigger",
+                      "marked_equity": marked_eq, "baseline": baseline,
+                      "n_winners": len(winners), "cash": st.cash})
+    for p, mk in winners:
+        close_position_exit(client, st, p, mk, "whale_harvest")
+    return True
+
+
 def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
     """Stop-loss and per-trade take-profit (3x entry when attainable)."""
     now = time.time()
+    live_marks: list[tuple[Position, float]] = []
     for p in list(st.open_positions):
         if not p.filled or p.settled:
             continue
@@ -1109,6 +1150,13 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
         mark = side_mark(m, p.side)
         if mark is None:
             continue
+        live_marks.append((p, mark))
+    whale_harvest(client, st, live_marks)
+
+    for p, mark in live_marks:
+        if p.settled:
+            continue  # harvested above
+        secs_left = p.close_ts - now
         if p.peak_mark is None or mark > p.peak_mark:
             p.peak_mark = mark
 
