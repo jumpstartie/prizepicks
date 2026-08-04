@@ -15,3 +15,5 @@ bot/trade_journal_alerts.log
 bot/.journal_seen.json
 bot/observer.log
 bot/early_tip_obs.jsonl
+bot/early_tip_live.log
+bot/early_tip_trades.jsonl
