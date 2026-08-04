@@ -12,11 +12,11 @@ export START_EQUITY=20
 export EDGE_SIZING=1
 export RISK_FRACTION=0.18
 export RISK_FRAC_MIN=0.13
-# Kelly pulled back after 17:30 hot-ticket cluster pressed the floor
-export RISK_FRAC_MAX=0.25
-export EDGE_KELLY_FRAC=0.33
-# SPRINT floor: lock most of today's gain — worst case walk away ≥ $105
-export HALT_FLOOR=105
+# RATCHET: press Kelly while hot; trailing floor locks gains as HW climbs
+export RISK_FRAC_MAX=0.30
+export EDGE_KELLY_FRAC=0.40
+# Static floor is the launch pad; 0.70×HW ratchet takes over as book grows
+export HALT_FLOOR=95
 # Trailing floor: ratchets to 70% of realized (flat) high-water — protection
 # grows with the book but always leaves ~30% drawdown room to keep trading
 export HALT_TRAIL_FRAC=0.70
@@ -34,9 +34,9 @@ export SPIKE_FADE=1
 export SPIKE_PEAK=0.93
 export SPIKE_GIVEBACK=0.06
 export SPIKE_MIN_GAIN=0.03
-# SPRINT MODE: only mid/rich favorites (soft <85¢ was the variance source;
-# 85–95¢ ran ~96–100% WR last sessions). Fewer, surer tickets.
-export PRICE_LO=0.85
+# RATCHET band: soft 70–85¢ back on, but ONLY with lead agreement —
+# every big loser today was soft + bn=flat; those stay blocked below.
+export PRICE_LO=0.70
 export PRICE_HI=0.999
 # Skip thin-margin rich favorites — redeploy into fatter 70–90¢ books
 export SKIP_ENTRY_RICH=0.95
@@ -109,7 +109,8 @@ export PRIOR_DIR_AGREE_MULT=1.10
 export PRIOR_DIR_DISAGREE_MULT=0.50
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.50
-export SOFT_BN_FLAT_MULT=0.50
+# 0 = soft entries REQUIRE lead agreement (flat tape soft was the bleed)
+export SOFT_BN_FLAT_MULT=0
 # Stack cap: room for hot setup × BN agree without going nuclear
 export MAX_SIZE_MULT=1.65
 export LOSS_COOLDOWN_LOSSES=2
