@@ -4,8 +4,14 @@ Primary: Binance trade WebSocket (data-stream.binance.vision)
 Confirm: Coinbase spot REST (same-direction check)
 Fallback: Binance REST poller
 
+Extras:
+  - Taker-flow imbalance from WS aggressor flags (filters fake ret leans)
+  - BTC/ETH risk veto on soft alt entries when majors dump/pump hard
+
 Kalshi YES ~= underlying UP; Kalshi NO ~= underlying DOWN.
 Threshold is vol-adjusted so quiet tapes don't spam false leans.
+
+Hist ticks: (ts, px, qty, taker_sign) with taker_sign +1 buy / -1 sell / 0 unknown.
 """
 from __future__ import annotations
 
@@ -18,6 +24,8 @@ import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque
+
+Tick = tuple[float, float, float, int]  # ts, px, qty, taker_sign
 
 
 DEFAULT_BASES = (
@@ -49,6 +57,12 @@ COINBASE_PRODUCT = {
     "NEARUSDT": "NEAR-USD",
     "ZECUSDT": "ZEC-USD",
 }
+# Always keep majors subscribed for cross-asset risk veto.
+RISK_VETO_SYMBOLS = tuple(
+    s.strip().upper()
+    for s in os.environ.get("RISK_VETO_SYMBOLS", "BTCUSDT,ETHUSDT").split(",")
+    if s.strip()
+)
 
 
 @dataclass
@@ -63,6 +77,8 @@ class LeadSignal:
     vol: float = 0.0
     threshold: float = 0.0
     confirmed: bool | None = None  # Coinbase same-way confirm
+    flow_imb: float = 0.0          # taker buy-sell imbalance in [-1, 1]
+    flow_qty: float = 0.0          # base-asset qty in flow window
 
 
 def series_root(ticker_or_series: str) -> str:
@@ -110,8 +126,26 @@ class BinanceLeadFeed:
         self.use_ws = os.environ.get("BINANCE_WS", "1").lower() in (
             "1", "true", "yes", "on"
         )
+        self.taker_flow = os.environ.get("TAKER_FLOW", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.flow_window_sec = float(
+            os.environ.get("TAKER_FLOW_WINDOW_SEC", str(self.fast_window_sec))
+        )
+        # |imb| above this opposing a ret lean → flatten the lean
+        self.flow_veto_imb = float(os.environ.get("TAKER_FLOW_VETO_IMB", "0.35"))
+        self.flow_min_qty = float(os.environ.get("TAKER_FLOW_MIN_QTY", "0"))
+        self.risk_veto_enabled = os.environ.get("RISK_VETO", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.risk_veto_pct = float(os.environ.get("RISK_VETO_PCT", "0.0012"))
+        self.risk_veto_window = float(os.environ.get("RISK_VETO_WINDOW_SEC", "15"))
         self.bases = bases
-        self._hist: dict[str, Deque[tuple[float, float]]] = {
+        # Always subscribe majors used for risk veto
+        for maj in RISK_VETO_SYMBOLS:
+            if maj not in self.symbols:
+                self.symbols.append(maj)
+        self._hist: dict[str, Deque[Tick]] = {
             s: deque(maxlen=5000) for s in self.symbols
         }
         self._cb_hist: dict[str, Deque[tuple[float, float]]] = {
@@ -162,13 +196,14 @@ class BinanceLeadFeed:
         return added
 
     # --- feeds -------------------------------------------------------------
-    def _push(self, symbol: str, ts: float, px: float, source: str) -> None:
+    def _push(self, symbol: str, ts: float, px: float, source: str,
+              qty: float = 0.0, taker_sign: int = 0) -> None:
         with self._lock:
             if symbol not in self._hist:
                 self._hist[symbol] = deque(maxlen=5000)
                 if symbol not in self.symbols:
                     self.symbols.append(symbol)
-            self._hist[symbol].append((ts, px))
+            self._hist[symbol].append((ts, px, float(qty or 0.0), int(taker_sign)))
             self._active_base = source
             self._last[symbol] = self._compute_locked(symbol, ts)
 
@@ -197,9 +232,14 @@ class BinanceLeadFeed:
                         continue
                     sym = data.get("s")
                     px = float(data["p"])
+                    qty = float(data.get("q") or 0.0)
+                    # m=True → buyer is maker → seller was aggressor (taker sell)
+                    is_buyer_maker = bool(data.get("m"))
+                    taker_sign = -1 if is_buyer_maker else 1
                     ts = float(data.get("T") or data.get("E") or time.time() * 1000) / 1000.0
                     if sym:
-                        self._push(sym, ts, px, "binance-ws")
+                        self._push(sym, ts, px, "binance-ws",
+                                   qty=qty, taker_sign=taker_sign)
             except Exception as e:
                 self._ws_ok = False
                 self._last_error = f"ws: {e}"
@@ -271,7 +311,7 @@ class BinanceLeadFeed:
             self._stop.wait(max(2.0, self.poll_sec))
 
     # --- signal math -------------------------------------------------------
-    def _vol_locked(self, hist: Deque[tuple[float, float]]) -> float:
+    def _vol_locked(self, hist: Deque[Tick]) -> float:
         """Short-horizon realized vol from 1s returns (fraction)."""
         if len(hist) < 8:
             return 0.0
@@ -291,14 +331,15 @@ class BinanceLeadFeed:
         n_steps = max(1.0, self.window_sec / step)
         return math.sqrt(var) * math.sqrt(n_steps)
 
-    def _ret_over(self, hist: Deque[tuple[float, float]],
-                  window: float, now: float) -> tuple[float, float]:
+    def _ret_over(self, hist: Deque, window: float, now: float) -> tuple[float, float]:
+        """Return (ret, latest_px). hist entries are (ts, px, ...) or (ts, px)."""
         if not hist:
             return 0.0, 0.0
-        latest_ts, latest_px = hist[-1]
+        latest_ts, latest_px = hist[-1][0], hist[-1][1]
         cutoff = latest_ts - window
         base_px = hist[0][1]
-        for ts, px in hist:
+        for pt in hist:
+            ts, px = pt[0], pt[1]
             if ts <= cutoff:
                 base_px = px
             else:
@@ -306,6 +347,25 @@ class BinanceLeadFeed:
         if base_px <= 0:
             return 0.0, latest_px
         return (latest_px - base_px) / base_px, latest_px
+
+    def _flow_over(self, hist: Deque[Tick], window: float) -> tuple[float, float]:
+        """Taker imbalance in [-1, 1] and total qty over window."""
+        if not hist:
+            return 0.0, 0.0
+        latest_ts = hist[-1][0]
+        cutoff = latest_ts - window
+        buy = sell = 0.0
+        for ts, _px, qty, sign in hist:
+            if ts < cutoff or qty <= 0 or sign == 0:
+                continue
+            if sign > 0:
+                buy += qty
+            else:
+                sell += qty
+        tot = buy + sell
+        if tot <= 0:
+            return 0.0, 0.0
+        return (buy - sell) / tot, tot
 
     def _compute_locked(
         self,
@@ -333,6 +393,20 @@ class BinanceLeadFeed:
         else:
             direction = "flat"
 
+        flow_win = min(window, self.flow_window_sec) if window <= 10 else self.flow_window_sec
+        flow_imb, flow_qty = self._flow_over(hist, flow_win)
+        # Taker flow veto: price lean without matching aggressors → treat flat
+        if (
+            self.taker_flow
+            and direction != "flat"
+            and flow_qty >= self.flow_min_qty
+            and abs(flow_imb) >= self.flow_veto_imb
+        ):
+            if direction == "up" and flow_imb <= -self.flow_veto_imb:
+                direction = "flat"
+            elif direction == "down" and flow_imb >= self.flow_veto_imb:
+                direction = "flat"
+
         confirmed: bool | None = None
         if self.confirm and direction != "flat":
             cb = self._cb_hist.get(symbol)
@@ -354,6 +428,8 @@ class BinanceLeadFeed:
             vol=vol,
             threshold=thresh,
             confirmed=confirmed,
+            flow_imb=flow_imb,
+            flow_qty=flow_qty,
         )
 
     def signal(self, ticker_or_series: str,
@@ -410,6 +486,36 @@ class BinanceLeadFeed:
                 return False, sig, "coinbase_disagree"
         return True, sig, "agree" if sig.confirmed is not False else "agree_unconfirmed"
 
+    def risk_veto(self, ticker_or_series: str,
+                  kalshi_side: str) -> tuple[bool, str]:
+        """Block soft alt entries when BTC/ETH tape violently opposes.
+
+        Returns (allow, reason). Majors themselves are never vetoed here.
+        """
+        if not self.risk_veto_enabled:
+            return True, ""
+        sym = symbol_for(ticker_or_series)
+        if not sym or sym in RISK_VETO_SYMBOLS:
+            return True, ""
+        want = "up" if kalshi_side == "yes" else "down"
+        with self._lock:
+            for maj in RISK_VETO_SYMBOLS:
+                hist = self._hist.get(maj)
+                if not hist:
+                    continue
+                ret, _ = self._ret_over(hist, self.risk_veto_window, time.time())
+                if want == "up" and ret <= -self.risk_veto_pct:
+                    return False, (
+                        f"risk_veto:{maj}{ret*100:+.3f}%/"
+                        f"{self.risk_veto_window:.0f}s vs {want}"
+                    )
+                if want == "down" and ret >= self.risk_veto_pct:
+                    return False, (
+                        f"risk_veto:{maj}{ret*100:+.3f}%/"
+                        f"{self.risk_veto_window:.0f}s vs {want}"
+                    )
+        return True, ""
+
     def status_line(self) -> str:
         with self._lock:
             parts = []
@@ -423,14 +529,25 @@ class BinanceLeadFeed:
                         conf = "|cb✓"
                     elif sig.confirmed is False:
                         conf = "|cb×"
+                    flow = ""
+                    if self.taker_flow and abs(sig.flow_imb) >= 0.01:
+                        flow = f"|f{sig.flow_imb:+.2f}"
                     parts.append(
                         f"{sym}:{sig.direction}({sig.ret_pct*100:+.3f}%/"
                         f"{sig.window_sec:.0f}s thr={sig.threshold*100:.3f}%"
-                        f"{conf} @{sig.price:g})"
+                        f"{conf}{flow} @{sig.price:g})"
                     )
             err = f" err={self._last_error}" if self._last_error else ""
             src = "ws" if self._ws_ok else (self._active_base or "?")
-        return f"binance[{src}] " + " ".join(parts) + err
+            extras = []
+            if self.taker_flow:
+                extras.append(f"flow@{self.flow_window_sec:.0f}s≥{self.flow_veto_imb:g}")
+            if self.risk_veto_enabled:
+                extras.append(
+                    f"veto={'/'.join(RISK_VETO_SYMBOLS)}@{self.risk_veto_pct*100:.2f}%"
+                )
+            extra = (" " + " ".join(extras)) if extras else ""
+        return f"binance[{src}] " + " ".join(parts) + extra + err
 
 
 def lean_enabled() -> bool:

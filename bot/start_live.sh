@@ -61,5 +61,14 @@ export BINANCE_LEAD_WINDOW_SEC=15
 export BINANCE_LEAD_PCT=0.0008
 export BINANCE_FAST_WINDOW_SEC=4
 export BINANCE_FAST_PCT=0.0004
+# Taker-flow filter: flatten ret leans that disagree with aggressor tape
+export TAKER_FLOW=1
+export TAKER_FLOW_WINDOW_SEC=4
+export TAKER_FLOW_VETO_IMB=0.35
+# Block soft alt entries when BTC/ETH violently opposes
+export RISK_VETO=1
+export RISK_VETO_SYMBOLS=BTCUSDT,ETHUSDT
+export RISK_VETO_PCT=0.0012
+export RISK_VETO_WINDOW_SEC=15
 
 exec python3 -u bot/runner.py >> bot/runner_live.log 2>&1

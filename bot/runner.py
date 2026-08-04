@@ -476,11 +476,15 @@ def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float
       agree  → SOFT_BN_AGREE_MULT (default 1.25×)
       flat   → SOFT_BN_FLAT_MULT (default 0.50×)
       disagree → block
+    Also: BTC/ETH risk veto + taker-flow filter (inside lead feed).
     """
     if entry >= SOFT_ENTRY_MAX or not SOFT_BINANCE_STRICT:
         return True, 1.0, ""
     if not _lead_active() or LEAD_FEED is None:
         return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}(no_lead)"
+    ok_rv, why_rv = LEAD_FEED.risk_veto(ticker, side)
+    if not ok_rv:
+        return False, 0.0, why_rv
     ok, sig, reason = LEAD_FEED.agrees(
         ticker, side,
         require_lean=False,
@@ -490,6 +494,7 @@ def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float
     )
     detail = "n/a" if sig is None else (
         f"{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
+        f"|f{sig.flow_imb:+.2f}"
     )
     if not ok:
         return False, 0.0, f"{reason}:{detail}"
@@ -1219,11 +1224,14 @@ def main():
         if syms:
             LEAD_FEED = BinanceLeadFeed(symbols=syms)
             LEAD_FEED.start()
-            log(f"binance lead ON mode={BINANCE_LEAD_MODE} symbols={syms} "
+            log(f"binance lead ON mode={BINANCE_LEAD_MODE} symbols={LEAD_FEED.symbols} "
                 f"window={LEAD_FEED.window_sec:.0f}s "
                 f"thresh={100*LEAD_FEED.base_threshold:.3f}%  "
                 f"fast={LEAD_FEED.fast_window_sec:.0f}s@"
-                f"{100*LEAD_FEED.fast_threshold:.3f}%")
+                f"{100*LEAD_FEED.fast_threshold:.3f}%  "
+                f"taker_flow={'ON' if LEAD_FEED.taker_flow else 'OFF'}  "
+                f"risk_veto={'ON' if LEAD_FEED.risk_veto_enabled else 'OFF'}"
+                f"@{100*LEAD_FEED.risk_veto_pct:.2f}%")
             # warm up a couple samples so first signals aren't empty
             time.sleep(min(4.0, LEAD_FEED.poll_sec * 2))
             log(LEAD_FEED.status_line())
