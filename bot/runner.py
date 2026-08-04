@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
-from bot import time_phase
+from bot import series_gov, time_phase
 from bot import sizing
 from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
 
@@ -681,6 +681,10 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     mult, mult_tag = apply_phase_size(
         ticker, side, entry, secs_left, st, bn_mult, mult, mult_tag,
     )
+    gov_mult, gov_tag = series_gov.series_risk_mult(st.closed, series_root(ticker))
+    if gov_mult != 1.0:
+        mult *= gov_mult
+        mult_tag = f"{mult_tag}+{gov_tag}" if mult_tag else gov_tag
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
     )
@@ -1363,6 +1367,7 @@ def main():
         f"phase=early≥{time_phase.EARLY_WINDOW_SEC:.0f}s×{time_phase.EARLY_SIZE_MULT:g}/"
         f"late≤{time_phase.LATE_WINDOW_SEC:.0f}s≠≥{time_phase.LATE_RICH_ENTRY:g}/"
         f"prior_bias={'ON' if time_phase.PRIOR_DIR_BIAS else 'OFF'}  "
+        f"{series_gov.describe()}  "
         f"stage_size={'ON' if STAGE_SIZE else 'OFF'}  "
         f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
         f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "

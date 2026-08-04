@@ -14,7 +14,8 @@ export RISK_FRACTION=0.18
 export RISK_FRAC_MIN=0.13
 export RISK_FRAC_MAX=0.25
 export EDGE_KELLY_FRAC=0.33
-export HALT_FLOOR=70
+# Raised from 70 after banking the morning run (protect ~$120 book)
+export HALT_FLOOR=100
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
 export STOP_LOSS_PCT=0
@@ -34,10 +35,21 @@ export CONFIRM_POLLS=1
 export POLL_SEC=1.0
 export MAX_CONCURRENT=8
 export MAX_EXPOSURE_FRAC=0.85
-# Core names full size; BTC/DOGE/NEAR half-size satellites (more boards, less dead time)
-export SERIES=KXBNB15M,KXSOL15M,KXXRP15M,KXETH15M
-export SATELLITE_SERIES=KXBTC15M,KXDOGE15M,KXNEAR15M
+# Core = best WR names (ETH 28-0, XRP 94%, BNB 96%); SOL demoted after 4-5 −$17 chop
+export SERIES=KXBNB15M,KXXRP15M,KXETH15M
+export SATELLITE_SERIES=KXBTC15M,KXSOL15M,KXDOGE15M,KXNEAR15M
 export SATELLITE_SIZE_MULT=0.5
+# Per-series safety governor: auto-cut cold series, boost hot ones
+export SERIES_GOV=1
+export SERIES_GOV_N=8
+export SERIES_GOV_MIN_SAMPLE=5
+export SERIES_GOV_COLD_NET=-4
+export SERIES_GOV_COLD_MULT=0.5
+export SERIES_GOV_ICE_NET=-9
+export SERIES_GOV_ICE_MULT=0.25
+export SERIES_GOV_HOT_WR=0.90
+export SERIES_GOV_HOT_NET=3
+export SERIES_GOV_HOT_MULT=1.25
 export SOFT_ENTRY_MAX=0.85
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
