@@ -47,8 +47,16 @@ export MAX_CONCURRENT=8
 export MAX_EXPOSURE_FRAC=0.85
 # Core = best WR names (ETH 28-0, XRP 94%, BNB 96%); SOL demoted after 4-5 −$17 chop
 export SERIES=KXBNB15M,KXXRP15M,KXETH15M
-export SATELLITE_SERIES=KXBTC15M,KXSOL15M,KXDOGE15M,KXNEAR15M
+# Satellites: crypto alts + new Pyth-settled metals 15m (Hermes primary lean)
+export SATELLITE_SERIES=KXBTC15M,KXSOL15M,KXDOGE15M,KXNEAR15M,KXGOLD15M,KXSILVER15M
 export SATELLITE_SIZE_MULT=0.5
+# Metals edge: Hermes primary + Coinbase confirm; session gate; own soft-corr bucket
+export METALS_SERIES=KXGOLD15M,KXSILVER15M
+export METALS_SESSION=1
+export METALS_SOFT_CORR_MAX=2
+export PYTH_PRIMARY_SYMBOLS=XAUUSD,XAGUSD
+export PYTH_CONFIRM=1
+export PYTH_HERMES=https://hermes.pyth.network
 # Per-series safety governor: auto-cut cold series, boost hot ones
 export SERIES_GOV=1
 export SERIES_GOV_N=8
@@ -111,7 +119,7 @@ export MULTI_VENUE_PCT=0.0003
 export MULTI_VENUE_STRICT=0
 export OKX_CONFIRM=1
 export KRAKEN_CONFIRM=1
-# Pyth oracle as 5th voter (settlement-style data, one batch call for all symbols)
-export PYTH_CONFIRM=1
+# Pyth/Hermes also votes on crypto soft confirms (metals use it as primary above)
+# PYTH_CONFIRM already set with METALS_* block
 
 exec python3 -u bot/runner.py >> bot/runner_live.log 2>&1

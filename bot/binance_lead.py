@@ -46,6 +46,9 @@ SERIES_SYMBOLS = {
     "KXDOGE15M": "DOGEUSDT",
     "KXNEAR15M": "NEARUSDT",
     "KXZEC15M": "ZECUSDT",
+    # Kalshi metals 15m — Pyth-settled; no Binance spot XAU/XAG
+    "KXGOLD15M": "XAUUSD",
+    "KXSILVER15M": "XAGUSD",
 }
 COINBASE_PRODUCT = {
     "XRPUSDT": "XRP-USD",
@@ -56,6 +59,8 @@ COINBASE_PRODUCT = {
     "DOGEUSDT": "DOGE-USD",
     "NEARUSDT": "NEAR-USD",
     "ZECUSDT": "ZEC-USD",
+    "XAUUSD": "XAU-USD",
+    "XAGUSD": "XAG-USD",
 }
 OKX_INST = {
     "XRPUSDT": "XRP-USDT",
@@ -77,7 +82,7 @@ KRAKEN_PAIR = {
     "DOGEUSDT": "DOGEUSD",
     "NEARUSDT": "NEARUSD",
 }
-# Pyth Hermes price-feed ids (Crypto.X/USD), resolved live 2026-08-04
+# Pyth Hermes price-feed ids — crypto + Metal.XAU/XAG (Kalshi metals settle)
 PYTH_IDS = {
     "BTCUSDT": "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
     "ETHUSDT": "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
@@ -86,7 +91,16 @@ PYTH_IDS = {
     "XRPUSDT": "ec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8",
     "DOGEUSDT": "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
     "NEARUSDT": "c415de8d2eba7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750",
+    # Metal.XAU/USD / Metal.XAG/USD — resolved live 2026-08-04
+    "XAUUSD": "765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2",
+    "XAGUSD": "f2fb02c32b055c805e7238d628e5e9dadef274376114eb1f012337cabe93871e",
 }
+# No Binance spot book — Hermes is the primary lean hist for these symbols.
+PYTH_PRIMARY_SYMBOLS = frozenset(
+    s.strip().upper()
+    for s in os.environ.get("PYTH_PRIMARY_SYMBOLS", "XAUUSD,XAGUSD").split(",")
+    if s.strip()
+)
 PYTH_HERMES = os.environ.get("PYTH_HERMES", "https://hermes.pyth.network")
 # Always keep majors subscribed for cross-asset risk veto.
 RISK_VETO_SYMBOLS = tuple(
@@ -119,6 +133,11 @@ def series_root(ticker_or_series: str) -> str:
 
 def symbol_for(ticker_or_series: str) -> str | None:
     return SERIES_SYMBOLS.get(series_root(ticker_or_series))
+
+
+def is_binance_symbol(symbol: str) -> bool:
+    """True if symbol has a Binance spot trade stream (crypto USDT pairs)."""
+    return bool(symbol) and symbol not in PYTH_PRIMARY_SYMBOLS and symbol.endswith("USDT")
 
 
 class BinanceLeadFeed:
@@ -249,7 +268,8 @@ class BinanceLeadFeed:
             t5 = threading.Thread(target=self._kraken_loop, name="kraken", daemon=True)
             t5.start()
             self._threads.append(t5)
-        if self.multi_venue and self.pyth_enabled:
+        # Hermes: crypto multi-venue voter + required primary lean for metals
+        if self.pyth_enabled or any(s in PYTH_IDS for s in self.symbols):
             t6 = threading.Thread(target=self._pyth_loop, name="pyth", daemon=True)
             t6.start()
             self._threads.append(t6)
@@ -294,7 +314,11 @@ class BinanceLeadFeed:
             self._last_error = f"websocket import: {e}"
             return
         while not self._stop.is_set():
-            streams = "/".join(f"{s.lower()}@trade" for s in list(self.symbols))
+            bn_syms = [s for s in list(self.symbols) if is_binance_symbol(s)]
+            if not bn_syms:
+                self._stop.wait(5)
+                continue
+            streams = "/".join(f"{s.lower()}@trade" for s in bn_syms)
             url = f"{WS_URL}?streams={streams}"
             ws = None
             try:
@@ -357,6 +381,8 @@ class BinanceLeadFeed:
             # If WS is healthy, REST can be slower backup
             wait = self.poll_sec if not self._ws_ok else max(self.poll_sec, 5.0)
             for sym in list(self.symbols):
+                if not is_binance_symbol(sym):
+                    continue
                 try:
                     px, src = self._fetch_binance_price(sym)
                     self._push(sym, time.time(), px, src)
@@ -465,10 +491,14 @@ class BinanceLeadFeed:
                 )
                 with urllib.request.urlopen(req, timeout=6) as resp:
                     data = json.loads(resp.read().decode())
-                by_id = {i: s for i, s in id_syms}
+                by_id = {
+                    (i or "").lower().removeprefix("0x"): s for i, s in id_syms
+                }
+                primary_pushes: list[tuple[str, float, float]] = []
                 with self._lock:
                     for p in data.get("parsed") or []:
-                        sym = by_id.get(p.get("id"))
+                        pid = (p.get("id") or "").lower().removeprefix("0x")
+                        sym = by_id.get(pid)
                         if not sym:
                             continue
                         pr = p.get("price") or {}
@@ -483,11 +513,16 @@ class BinanceLeadFeed:
                         # de-dupe identical publish times
                         if not h or h[-1][0] != ts:
                             h.append((ts, px))
+                            if sym in PYTH_PRIMARY_SYMBOLS:
+                                primary_pushes.append((sym, ts, px))
                     self._pyth_ok = True
+                # Primary lean for metals: Hermes → _hist (outside lock via _push)
+                for sym, ts, px in primary_pushes:
+                    self._push(sym, ts, px, "hermes")
             except Exception as e:
                 self._pyth_ok = False
                 self._last_error = f"pyth: {e}"
-            self._stop.wait(max(2.0, self.poll_sec))
+            self._stop.wait(max(1.0, min(self.poll_sec, 2.0)))
 
     # --- signal math -------------------------------------------------------
     def _vol_locked(self, hist: Deque[Tick]) -> float:
@@ -586,6 +621,8 @@ class BinanceLeadFeed:
             elif direction == "down" and flow_imb >= self.flow_veto_imb:
                 direction = "flat"
 
+        # Taker-flow only applies to Binance trade hist; metals Hermes ticks
+        # have taker_sign=0 so flow_qty stays 0 and this is a no-op.
         confirmed: bool | None = None
         if self.confirm and direction != "flat":
             cb = self._cb_hist.get(symbol)
@@ -596,6 +633,10 @@ class BinanceLeadFeed:
                 else:
                     confirmed = cb_ret < 0
 
+        if symbol in PYTH_PRIMARY_SYMBOLS:
+            src = "hermes"
+        else:
+            src = "binance-ws" if self._ws_ok else (self._active_base or "")
         return LeadSignal(
             symbol=symbol,
             direction=direction,
@@ -603,7 +644,7 @@ class BinanceLeadFeed:
             price=latest_px,
             window_sec=window,
             ts=hist[-1][0],
-            source=("binance-ws" if self._ws_ok else (self._active_base or "")),
+            source=src,
             vol=vol,
             threshold=thresh,
             confirmed=confirmed,
@@ -676,6 +717,9 @@ class BinanceLeadFeed:
         sym = symbol_for(ticker_or_series)
         if not sym or sym in RISK_VETO_SYMBOLS:
             return True, ""
+        # Metals are a different risk factor — don't veto gold on a BTC dump.
+        if sym in PYTH_PRIMARY_SYMBOLS:
+            return True, ""
         want = "up" if kalshi_side == "yes" else "down"
         with self._lock:
             for maj in RISK_VETO_SYMBOLS:
@@ -714,17 +758,18 @@ class BinanceLeadFeed:
         now = time.time()
         out: list[tuple[str, str, float]] = []
         with self._lock:
-            # Binance primary hist
-            bn = self._hist.get(sym)
-            if bn and len(bn) >= 2:
-                ret, _ = self._ret_over(bn, window, now)
-                out.append(("bn", self._dir_from_ret(ret, thr), ret))
-            if self.okx_enabled:
+            # Primary hist: Binance for crypto, Hermes for metals
+            primary = self._hist.get(sym)
+            if primary and len(primary) >= 2:
+                ret, _ = self._ret_over(primary, window, now)
+                tag = "hermes" if sym in PYTH_PRIMARY_SYMBOLS else "bn"
+                out.append((tag, self._dir_from_ret(ret, thr), ret))
+            if self.okx_enabled and sym not in PYTH_PRIMARY_SYMBOLS:
                 hx = self._okx_hist.get(sym)
                 if hx and len(hx) >= 2:
                     ret, _ = self._ret_over(hx, window, now)
                     out.append(("okx", self._dir_from_ret(ret, thr), ret))
-            if self.kraken_enabled:
+            if self.kraken_enabled and sym not in PYTH_PRIMARY_SYMBOLS:
                 hx = self._kraken_hist.get(sym)
                 if hx and len(hx) >= 2:
                     ret, _ = self._ret_over(hx, window, now)
@@ -734,7 +779,8 @@ class BinanceLeadFeed:
                 if hx and len(hx) >= 2:
                     ret, _ = self._ret_over(hx, window, now)
                     out.append(("cb", self._dir_from_ret(ret, thr), ret))
-            if self.pyth_enabled:
+            # Separate pyth voter for crypto only (metals already voted as hermes)
+            if self.pyth_enabled and sym not in PYTH_PRIMARY_SYMBOLS:
                 hx = self._pyth_hist.get(sym)
                 if hx and len(hx) >= 2:
                     ret, _ = self._ret_over(hx, window, now)

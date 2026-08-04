@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
-from bot import series_gov, time_phase
+from bot import metals, series_gov, time_phase
 from bot import sizing
 from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
 
@@ -558,8 +558,19 @@ def apply_phase_size(ticker: str, side: str, entry: float, secs_left: float,
     return mult, "+".join(tags)
 
 
-def soft_open_count(st: State) -> int:
-    return sum(1 for p in st.open_positions if (p.entry or 0) < SOFT_ENTRY_MAX)
+def soft_open_count(st: State, metal: bool | None = None) -> int:
+    """Count soft opens; metal=True/False splits the correlated buckets."""
+    n = 0
+    for p in st.open_positions:
+        if (p.entry or 0) >= SOFT_ENTRY_MAX:
+            continue
+        is_m = metals.is_metal(p.ticker)
+        if metal is True and not is_m:
+            continue
+        if metal is False and is_m:
+            continue
+        n += 1
+    return n
 
 
 def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float, str]:
@@ -683,6 +694,13 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         append_trade_log({"event": "skip_mispricing", "ticker": ticker,
                           "side": side, "entry": entry, "reason": why_m})
         return
+    if metals.is_metal(ticker):
+        ok_sess, why_sess = metals.metals_session_ok()
+        if not ok_sess:
+            log(f"skip {ticker}: metals session ({why_sess})")
+            append_trade_log({"event": "skip_metals_session", "ticker": ticker,
+                              "side": side, "entry": entry, "reason": why_sess})
+            return
     ok_bn, bn_mult, why_bn = soft_binance_gate(ticker, side, entry)
     if not ok_bn:
         log(f"skip {ticker}: soft Binance gate ({why_bn})")
@@ -707,12 +725,22 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             "prior_dir": prior_dir, "secs_left": secs_left,
         })
         return
-    if entry < SOFT_ENTRY_MAX and soft_open_count(st) >= SOFT_CORR_MAX:
-        log(f"skip {ticker}: soft corr cap {SOFT_CORR_MAX} "
-            f"(entry={entry:.2f}<{SOFT_ENTRY_MAX:g})")
-        append_trade_log({"event": "skip_soft_corr", "ticker": ticker,
-                          "side": side, "entry": entry, "cap": SOFT_CORR_MAX})
-        return
+    if entry < SOFT_ENTRY_MAX:
+        if metals.is_metal(ticker):
+            cap = metals.METALS_SOFT_CORR_MAX
+            n_soft = soft_open_count(st, metal=True)
+            bucket = "metals"
+        else:
+            cap = SOFT_CORR_MAX
+            n_soft = soft_open_count(st, metal=False)
+            bucket = "crypto"
+        if n_soft >= cap:
+            log(f"skip {ticker}: soft corr cap {cap} [{bucket}] "
+                f"(entry={entry:.2f}<{SOFT_ENTRY_MAX:g})")
+            append_trade_log({"event": "skip_soft_corr", "ticker": ticker,
+                              "side": side, "entry": entry, "cap": cap,
+                              "bucket": bucket})
+            return
     mult, mult_tag = size_mult_for(
         ticker, entry=entry, secs_left=secs_left,
         bn_size_mult=bn_mult, bn_tag=why_bn,
@@ -1421,7 +1449,9 @@ def main():
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
         f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
-        f"soft_corr≤{SOFT_CORR_MAX}  "
+        f"soft_corr≤{SOFT_CORR_MAX}"
+        f"/metals≤{metals.METALS_SOFT_CORR_MAX}  "
+        f"metals_session={'ON' if metals.METALS_SESSION else 'OFF'}  "
         f"phase=early≥{time_phase.EARLY_WINDOW_SEC:.0f}s×{time_phase.EARLY_SIZE_MULT:g}/"
         f"late≤{time_phase.LATE_WINDOW_SEC:.0f}s≠≥{time_phase.LATE_RICH_ENTRY:g}/"
         f"prior_bias={'ON' if time_phase.PRIOR_DIR_BIAS else 'OFF'}  "
