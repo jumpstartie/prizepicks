@@ -57,6 +57,10 @@ START_EQUITY=20 MODE=live \
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
 | `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
+| `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut |
+| `SOFT_ENTRY_SIZE_MULT` | `0.50` | multiplier for soft favorites |
+| `SOFT_ENTRY_EARLY_SECS` | `300` | extra soft cut if more than this many secs left |
+| `SOFT_ENTRY_EARLY_MULT` | `0.50` | extra multiplier stacked on soft+early entries |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
 | `EDGE_SIZING` | `1` | dynamic risk from live edge |
 | `RISK_FRAC_MIN` / `MAX` | `0.08` / `0.22` | hard band for edge sizer |

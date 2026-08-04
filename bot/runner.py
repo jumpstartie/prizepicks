@@ -78,6 +78,12 @@ TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
+# Soft favorites (below researched late band): keep trading but cut size.
+# Early-window soft entries get an extra cut (correlated flip risk).
+SOFT_ENTRY_MAX = float(os.environ.get("SOFT_ENTRY_MAX", "0.85"))
+SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "0.50"))
+SOFT_ENTRY_EARLY_SECS = float(os.environ.get("SOFT_ENTRY_EARLY_SECS", "300"))
+SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "0.50"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
 MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))
@@ -404,8 +410,21 @@ def series_root(ticker: str) -> str:
     return ticker.split("-", 1)[0]
 
 
-def size_mult_for(ticker: str) -> float:
-    return SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
+def size_mult_for(ticker: str, entry: float | None = None,
+                  secs_left: float | None = None) -> tuple[float, str]:
+    """Position size multiplier + reason tag (satellite / soft-entry cuts)."""
+    mult = SATELLITE_SIZE_MULT if series_root(ticker) in SATELLITE_SERIES else 1.0
+    tags: list[str] = []
+    if series_root(ticker) in SATELLITE_SERIES:
+        tags.append(f"sat×{SATELLITE_SIZE_MULT:g}")
+    if entry is not None and entry < SOFT_ENTRY_MAX and SOFT_ENTRY_SIZE_MULT < 1:
+        mult *= SOFT_ENTRY_SIZE_MULT
+        tags.append(f"soft<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}")
+        if (secs_left is not None and secs_left > SOFT_ENTRY_EARLY_SECS
+                and SOFT_ENTRY_EARLY_MULT < 1):
+            mult *= SOFT_ENTRY_EARLY_MULT
+            tags.append(f"early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}")
+    return mult,("+".join(tags) if tags else "full")
 
 
 def book_spread(m: dict) -> float | None:
@@ -446,7 +465,13 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
                           "side": side, "entry": entry, "reason": why_m})
         return
 
-    mult = size_mult_for(ticker)
+    try:
+        last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
+    except (TypeError, ValueError):
+        last_at = None
+    close_ts = parse_ts(m["close_time"])
+    secs_left = close_ts - time.time()
+    mult, mult_tag = size_mult_for(ticker, entry=entry, secs_left=secs_left)
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
     )
@@ -475,12 +500,6 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         log(f"skip {ticker}: need ${cost:.2f}, cash ${st.cash:.2f}")
         return
 
-    try:
-        last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
-    except (TypeError, ValueError):
-        last_at = None
-    close_ts = parse_ts(m["close_time"])
-    secs_left = close_ts - time.time()
     mid = mid_of(m)
     spr = book_spread(m)
     lead = LEAD_FEED.signal(ticker) if LEAD_FEED is not None else None
@@ -523,18 +542,18 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             tp_note = "tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
         else:
             tp_note = "tp=n/a (no upside to cap)"
-        sat = f"  satellite×{mult}" if mult < 1 else ""
+        size_note = f"  size={mult_tag}(×{mult:g})" if mult < 1 - 1e-12 else ""
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
-            f"order_id={pos.order_id} fill={fill}  {tp_note}{sat}  "
+            f"order_id={pos.order_id} fill={fill}  {tp_note}{size_note}  "
             f"risk={100*risk_frac:.1f}%({edge.reason}) wr~{100*edge.wr:.1f}% "
             f"mid={mid} spr={spr} bn={pos.binance_dir}:{None if lead is None else f'{lead.ret_pct*100:+.3f}%'}")
     else:
         targets = tp_targets_for_entry(entry)
         tp_note = ("tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
                    if targets else "tp=n/a")
-        sat = f"  satellite×{mult}" if mult < 1 else ""
+        size_note = f"  size={mult_tag}(×{mult:g})" if mult < 1 - 1e-12 else ""
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
-            f"(mid signal, {int(secs_left)}s to close)  {tp_note}{sat}  "
+            f"(mid signal, {int(secs_left)}s to close)  {tp_note}{size_note}  "
             f"risk={100*risk_frac:.1f}%({edge.reason})")
 
     st.positions.append(pos)
@@ -1099,6 +1118,8 @@ def main():
         f"(cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
+        f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
+        f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
