@@ -56,6 +56,7 @@ START_EQUITY=20 MODE=live \
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
 | `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
+| `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
 | `EDGE_SIZING` | `1` | dynamic risk from live edge |
 | `RISK_FRAC_MIN` / `MAX` | `0.08` / `0.22` | hard band for edge sizer |

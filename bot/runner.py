@@ -76,6 +76,8 @@ TAKE_PROFIT_MULT = float(os.environ.get("TAKE_PROFIT_MULT", "0"))
 TAKE_PROFIT_CAP = float(os.environ.get("TAKE_PROFIT_CAP", "0.99"))
 # Absolute bankroll floor — stop the run if equity hits this (overnight loss cap)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "15.0"))
+# Bank +$N from start_equity, then freeze new entries (0 = disabled)
+HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
 MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))
@@ -353,15 +355,31 @@ def place_live_maker(client: KalshiClient, ticker: str, side: str, entry: float,
     return None, side, entry, last_err
 
 
+def halt_reason(st: State) -> str | None:
+    """Return why we should halt, or None if still trading."""
+    if sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+        return "loss_floor"
+    if sizing.should_halt_profit(st.equity, st.start_equity, HALT_PROFIT):
+        return "profit_target"
+    return None
+
+
 def enforce_halt(client: KalshiClient, st: State) -> bool:
-    """If equity hit the floor, cancel resting orders and freeze new entries."""
+    """If loss floor or profit target hit, cancel resting orders and freeze entries."""
     if st.halted:
         return True
-    if not sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+    why = halt_reason(st)
+    if why is None:
         return False
     st.halted = True
-    log(f"HALT RUN equity=${st.equity:.2f} <= floor ${HALT_FLOOR:.2f} "
-        f"(start was ${st.start_equity:.2f}) — no new trades")
+    profit = st.equity - st.start_equity
+    if why == "profit_target":
+        log(f"HALT RUN PROFIT equity=${st.equity:.2f} "
+            f"(+${profit:.2f} >= target ${HALT_PROFIT:.2f}; "
+            f"start ${st.start_equity:.2f}) — no new trades")
+    else:
+        log(f"HALT RUN equity=${st.equity:.2f} <= floor ${HALT_FLOOR:.2f} "
+            f"(start was ${st.start_equity:.2f}) — no new trades")
     for p in list(st.open_positions):
         if p.filled or not p.order_id or st.mode != "live":
             continue
@@ -374,8 +392,11 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
         except Exception as e:
             log(f"HALT cancel {p.ticker}: {e}")
     st.save()
-    append_trade_log({"event": "halt", "equity": st.equity, "floor": HALT_FLOOR,
-                      "start_equity": st.start_equity, "cash": st.cash})
+    append_trade_log({
+        "event": "halt", "reason": why, "equity": st.equity,
+        "profit": profit, "profit_target": HALT_PROFIT,
+        "floor": HALT_FLOOR, "start_equity": st.start_equity, "cash": st.cash,
+    })
     return True
 
 
@@ -414,7 +435,7 @@ def mispricing_ok(ticker: str, side: str, entry: float, m: dict) -> tuple[bool, 
 
 
 def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
-    if st.halted or sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+    if st.halted or halt_reason(st) is not None:
         enforce_halt(client, st)
         return
     ticker = m["ticker"]
@@ -1077,9 +1098,14 @@ def main():
         f"{(str(int(TAKE_PROFIT_MULT))+'x') if TAKE_PROFIT_MULT>1 else 'multOFF'} "
         f"(cap {TAKE_PROFIT_CAP:.2f})  "
         f"halt_floor=${HALT_FLOOR:.2f}  "
+        f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
+    elif HALT_PROFIT > 0:
+        tgt = st.start_equity + HALT_PROFIT
+        log(f"profit pause armed: halt new entries at equity >= ${tgt:.2f} "
+            f"(+${HALT_PROFIT:.2f} from start ${st.start_equity:.2f})")
 
     pending: dict[str, dict] = {}  # ticker -> {side, hits, entry}
     last_summary = 0.0

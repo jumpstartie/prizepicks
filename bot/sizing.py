@@ -224,6 +224,14 @@ def should_halt(equity: float, start_equity: float,
     return equity <= max(frac_floor, abs_floor)
 
 
+def should_halt_profit(equity: float, start_equity: float,
+                       profit_target: float | None = None) -> bool:
+    """Halt after bankroll profit target is reached (0/None = disabled)."""
+    if profit_target is None or profit_target <= 0:
+        return False
+    return (equity - start_equity) >= profit_target
+
+
 def describe(start_equity: float = 20.0, floor: float | None = None,
              closed: list[dict] | None = None) -> str:
     rf, stats = effective_risk_fraction(start_equity, closed=closed, floor=floor)
