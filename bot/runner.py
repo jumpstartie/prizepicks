@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from bot.kalshi_client import KalshiClient
+from bot import time_phase
 from bot import sizing
 from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
 
@@ -183,6 +184,8 @@ class State:
     closed: list[dict] = field(default_factory=list)
     signaled: list[str] = field(default_factory=list)  # tickers already acted on
     halted: bool = False  # True once loss floor / drawdown halt trips
+    # series_root -> last settled market direction ("up"|"down")
+    last_settle_dir: dict = field(default_factory=dict)
 
     @property
     def open_positions(self) -> list[Position]:
@@ -204,6 +207,7 @@ class State:
             "closed": self.closed,
             "signaled": self.signaled,
             "halted": self.halted,
+            "last_settle_dir": self.last_settle_dir,
             "saved_at": time.time(),
         }
         STATE_PATH.write_text(json.dumps(payload, indent=2))
@@ -214,19 +218,51 @@ class State:
             d = json.loads(STATE_PATH.read_text())
             st = cls(start_equity=d["start_equity"], cash=d["cash"], mode=d["mode"],
                      signaled=d.get("signaled", []), closed=d.get("closed", []),
-                     halted=bool(d.get("halted", False)))
+                     halted=bool(d.get("halted", False)),
+                     last_settle_dir=dict(d.get("last_settle_dir") or {}))
             fields = set(Position.__dataclass_fields__)
             st.positions = [
                 Position(**{k: v for k, v in p.items() if k in fields})
                 for p in d.get("positions", [])
             ]
+            if not st.last_settle_dir:
+                st.last_settle_dir = _seed_settle_dirs(st.closed)
             log(f"resumed state equity=${st.equity:.2f} cash=${st.cash:.2f} "
                 f"open={len(st.open_positions)} closed={len(st.closed)} "
-                f"halted={st.halted}")
+                f"halted={st.halted} prior_dirs={len(st.last_settle_dir)}")
             return st
         st = cls(start_equity=start, cash=start, mode=mode)
         st.save()
         return st
+
+
+def _seed_settle_dirs(closed: list[dict]) -> dict:
+    """Rebuild last settle direction per series from closed settle events."""
+    out: dict[str, tuple[float, str]] = {}
+    for c in closed:
+        if (c.get("exit_reason") or "") != "settle" and c.get("event") not in (None, "settle"):
+            # closed list items are positions; prefer exit_reason==settle
+            pass
+        if (c.get("exit_reason") or "") != "settle":
+            continue
+        side = c.get("side")
+        pnl = float(c.get("pnl") or 0)
+        if side not in ("yes", "no") or pnl == 0:
+            # pnl==0 could be scratch; skip
+            if c.get("result") is None:
+                continue
+        won = bool(c.get("result")) if c.get("result") is not None else pnl > 0
+        if side not in ("yes", "no"):
+            continue
+        d = time_phase.settle_direction(side, won)
+        ts = float(c.get("close_ts") or c.get("opened_ts") or 0)
+        ser = series_root(c.get("ticker") or "")
+        if not ser:
+            continue
+        prev = out.get(ser)
+        if prev is None or ts >= prev[0]:
+            out[ser] = (ts, d)
+    return {k: v[1] for k, v in out.items()}
 
 
 def tp_targets_for_entry(entry: float) -> list[tuple[float, str]]:
@@ -465,6 +501,24 @@ def size_mult_for(ticker: str, entry: float | None = None,
     return mult, ("+".join(tags) if tags else "full")
 
 
+def apply_phase_size(ticker: str, side: str, entry: float, secs_left: float,
+                     st: State, bn_mult: float, base_mult: float,
+                     base_tag: str) -> tuple[float, str]:
+    """Layer time-phase / optional prior-dir size on top of size_mult_for."""
+    prior = (st.last_settle_dir or {}).get(series_root(ticker))
+    bn_agreed = bn_mult >= 1.0  # agree boost or full; flat is <1
+    phase_m, phase_tag = time_phase.phase_size_mult(
+        entry, secs_left, side, prior, bn_agreed=bn_agreed,
+    )
+    mult = base_mult * phase_m
+    tags = [t for t in (base_tag, phase_tag, time_phase.phase_label(secs_left)) if t]
+    # Always keep phase label for logs
+    if not phase_tag:
+        tags = [base_tag or "full", time_phase.phase_label(secs_left)]
+        tags = [t for t in tags if t]
+    return mult, "+".join(tags)
+
+
 def soft_open_count(st: State) -> int:
     return sum(1 for p in st.open_positions if (p.entry or 0) < SOFT_ENTRY_MAX)
 
@@ -586,6 +640,17 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         last_at = None
     close_ts = parse_ts(m["close_time"])
     secs_left = close_ts - time.time()
+    phase = time_phase.phase_label(secs_left)
+    prior_dir = (st.last_settle_dir or {}).get(series_root(ticker))
+    blocked, why_late = time_phase.late_rich_blocked(entry, secs_left)
+    if blocked:
+        log(f"skip {ticker}: time-phase gate ({why_late})")
+        append_trade_log({
+            "event": "skip_late_rich", "ticker": ticker, "side": side,
+            "entry": entry, "reason": why_late, "phase": phase,
+            "prior_dir": prior_dir, "secs_left": secs_left,
+        })
+        return
     if entry < SOFT_ENTRY_MAX and soft_open_count(st) >= SOFT_CORR_MAX:
         log(f"skip {ticker}: soft corr cap {SOFT_CORR_MAX} "
             f"(entry={entry:.2f}<{SOFT_ENTRY_MAX:g})")
@@ -595,6 +660,9 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     mult, mult_tag = size_mult_for(
         ticker, entry=entry, secs_left=secs_left,
         bn_size_mult=bn_mult, bn_tag=why_bn,
+    )
+    mult, mult_tag = apply_phase_size(
+        ticker, side, entry, secs_left, st, bn_mult, mult, mult_tag,
     )
     risk_frac, edge = sizing.effective_risk_fraction(
         st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
@@ -675,18 +743,20 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
             tp_note = "tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
         else:
             tp_note = "tp=n/a (no upside to cap)"
-        size_note = f"  size={mult_tag}(×{mult:g})" if mult < 1 - 1e-12 else ""
+        size_note = f"  size={mult_tag}(×{mult:g})" if mult != 1 else f"  size={mult_tag}"
         log(f"LIVE order {book_side} {unit:.2f} @ {book_price:.4f} on {ticker} "
             f"order_id={pos.order_id} fill={fill}  {tp_note}{size_note}  "
+            f"phase={phase} prior={prior_dir or '-'}  "
             f"risk={100*risk_frac:.1f}%({edge.reason}) wr~{100*edge.wr:.1f}% "
             f"mid={mid} spr={spr} bn={pos.binance_dir}:{None if lead is None else f'{lead.ret_pct*100:+.3f}%'}")
     else:
         targets = tp_targets_for_entry(entry)
         tp_note = ("tp=" + ",".join(f"{px:.2f}({r})" for px, r in targets)
                    if targets else "tp=n/a")
-        size_note = f"  size={mult_tag}(×{mult:g})" if mult < 1 - 1e-12 else ""
+        size_note = f"  size={mult_tag}(×{mult:g})" if mult != 1 else f"  size={mult_tag}"
         log(f"PAPER rest {side.upper()} {unit:.2f} @ {entry:.2f} on {ticker} "
             f"(mid signal, {int(secs_left)}s to close)  {tp_note}{size_note}  "
+            f"phase={phase} prior={prior_dir or '-'}  "
             f"risk={100*risk_frac:.1f}%({edge.reason})")
 
     st.positions.append(pos)
@@ -695,7 +765,10 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
     append_trade_log({
         "event": "signal", "mode": st.mode,
         "edge_ev": edge.ev_per_trade, "edge_kelly": edge.kelly,
-        "edge_n": edge.n, **asdict(pos),
+        "edge_n": edge.n,
+        "phase": phase, "prior_dir": prior_dir,
+        "size_mult": mult, "size_tag": mult_tag,
+        **asdict(pos),
     })
 
 
@@ -982,14 +1055,18 @@ def settle_due(client: KalshiClient, st: State):
         st.closed.append(asdict(p))
         # Markout vs entry: settle payout/contract - entry (favorites ~ +0.04 to +0.10)
         markout = (1.0 if won else 0.0) - p.entry
+        settle_dir = time_phase.settle_direction(p.side, won)
+        st.last_settle_dir[series_root(p.ticker)] = settle_dir
         log(f"SETTLE {p.ticker} {p.side.upper()} {'WIN' if won else 'LOSS'} "
             f"pnl={pnl:+.4f} markout/c={markout:+.3f}  "
             f"cash=${st.cash:.2f} equity=${st.equity:.2f} "
             f"risk={None if p.risk_frac is None else f'{100*p.risk_frac:.1f}%'} "
-            f"bn={p.binance_dir}:{None if p.binance_ret is None else f'{p.binance_ret*100:+.3f}%'}")
+            f"bn={p.binance_dir}:{None if p.binance_ret is None else f'{p.binance_ret*100:+.3f}%'} "
+            f"dir={settle_dir}")
         append_trade_log({
             "event": "settle", "won": won, "pnl": pnl,
             "markout_per_contract": markout,
+            "settle_dir": settle_dir,
             "cash": st.cash, "equity": st.equity, **asdict(p),
         })
         if not won:

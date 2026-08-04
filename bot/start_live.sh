@@ -46,8 +46,17 @@ export SOFT_ENTRY_EARLY_MULT=1.0
 export SOFT_CORR_MAX=3
 # Stage only applies to soft <85¢ in code
 export STAGE_SIZE=1
-export STAGE_SIZE_10M_MULT=0.50
-export STAGE_SIZE_5M_MULT=0.75
+# Early tipped favorites were our best WR pocket — don't cut them in half
+export STAGE_SIZE_10M_MULT=0.75
+export STAGE_SIZE_5M_MULT=0.85
+# Time-phase: boost first 3m soft+BN-agree; block late rich; prior-dir OFF (≈coinflip)
+export EARLY_WINDOW_SEC=720
+export EARLY_SIZE_MULT=1.25
+export LATE_WINDOW_SEC=180
+export LATE_RICH_ENTRY=0.88
+export PRIOR_DIR_BIAS=0
+export PRIOR_DIR_AGREE_MULT=1.10
+export PRIOR_DIR_DISAGREE_MULT=0.50
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.50
 export SOFT_BN_FLAT_MULT=0.50
