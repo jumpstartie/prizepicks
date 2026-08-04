@@ -16,6 +16,9 @@ export RISK_FRAC_MAX=0.25
 export EDGE_KELLY_FRAC=0.33
 # Raised from 70 after banking the morning run (protect ~$120 book)
 export HALT_FLOOR=100
+# Trailing floor: ratchets to 70% of realized (flat) high-water — protection
+# grows with the book but always leaves ~30% drawdown room to keep trading
+export HALT_TRAIL_FRAC=0.70
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
 export STOP_LOSS_PCT=0

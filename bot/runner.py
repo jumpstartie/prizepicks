@@ -87,6 +87,9 @@ SPIKE_GIVEBACK = float(os.environ.get("SPIKE_GIVEBACK", "0.06"))
 SPIKE_MIN_GAIN = float(os.environ.get("SPIKE_MIN_GAIN", "0.03"))
 # Absolute bankroll floor — stop the run if equity hits this (banked-profit floor)
 HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
+# Trailing floor: ratchet to this fraction of realized (flat) high-water.
+# Keeps drawdown room proportional as the book grows; never drops below HALT_FLOOR.
+HALT_TRAIL_FRAC = float(os.environ.get("HALT_TRAIL_FRAC", "0.70"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
 # Soft favorites: SIZE_MULT=1.0 disables the flat cut (strategy #3 full max-frequency).
@@ -195,6 +198,8 @@ class State:
     halted: bool = False  # True once loss floor / drawdown halt trips
     # series_root -> last settled market direction ("up"|"down")
     last_settle_dir: dict = field(default_factory=dict)
+    # highest realized (flat) cash seen — basis for the trailing floor
+    high_water: float = 0.0
 
     @property
     def open_positions(self) -> list[Position]:
@@ -217,6 +222,7 @@ class State:
             "signaled": self.signaled,
             "halted": self.halted,
             "last_settle_dir": self.last_settle_dir,
+            "high_water": self.high_water,
             "saved_at": time.time(),
         }
         STATE_PATH.write_text(json.dumps(payload, indent=2))
@@ -228,7 +234,8 @@ class State:
             st = cls(start_equity=d["start_equity"], cash=d["cash"], mode=d["mode"],
                      signaled=d.get("signaled", []), closed=d.get("closed", []),
                      halted=bool(d.get("halted", False)),
-                     last_settle_dir=dict(d.get("last_settle_dir") or {}))
+                     last_settle_dir=dict(d.get("last_settle_dir") or {}),
+                     high_water=float(d.get("high_water") or 0.0))
             fields = set(Position.__dataclass_fields__)
             st.positions = [
                 Position(**{k: v for k, v in p.items() if k in fields})
@@ -434,9 +441,22 @@ def place_live_maker(client: KalshiClient, ticker: str, side: str, entry: float,
     return None, side, entry, last_err
 
 
+def effective_floor(st: State) -> float:
+    """Static floor, ratcheted up by the trailing high-water rule."""
+    if HALT_TRAIL_FRAC <= 0:
+        return HALT_FLOOR
+    return max(HALT_FLOOR, round(HALT_TRAIL_FRAC * (st.high_water or 0.0), 2))
+
+
+def update_high_water(st: State) -> None:
+    """Track realized high-water only when flat (open costs inflate equity)."""
+    if not st.open_positions and st.cash > (st.high_water or 0.0):
+        st.high_water = st.cash
+
+
 def halt_reason(st: State) -> str | None:
     """Return why we should halt, or None if still trading."""
-    if sizing.should_halt(st.equity, st.start_equity, floor=HALT_FLOOR):
+    if sizing.should_halt(st.equity, st.start_equity, floor=effective_floor(st)):
         return "loss_floor"
     if sizing.should_halt_profit(st.equity, st.start_equity, HALT_PROFIT):
         return "profit_target"
@@ -457,8 +477,9 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
             f"(+${profit:.2f} >= target ${HALT_PROFIT:.2f}; "
             f"start ${st.start_equity:.2f}) — no new trades")
     else:
-        log(f"HALT RUN equity=${st.equity:.2f} <= floor ${HALT_FLOOR:.2f} "
-            f"(start was ${st.start_equity:.2f}) — no new trades")
+        log(f"HALT RUN equity=${st.equity:.2f} <= floor ${effective_floor(st):.2f} "
+            f"(static ${HALT_FLOOR:.2f}, high_water ${st.high_water:.2f}, "
+            f"start was ${st.start_equity:.2f}) — no new trades")
     for p in list(st.open_positions):
         if p.filled or not p.order_id or st.mode != "live":
             continue
@@ -474,7 +495,9 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
     append_trade_log({
         "event": "halt", "reason": why, "equity": st.equity,
         "profit": profit, "profit_target": HALT_PROFIT,
-        "floor": HALT_FLOOR, "start_equity": st.start_equity, "cash": st.cash,
+        "floor": effective_floor(st), "static_floor": HALT_FLOOR,
+        "high_water": st.high_water,
+        "start_equity": st.start_equity, "cash": st.cash,
     })
     return True
 
@@ -699,7 +722,7 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         mult *= gov_mult
         mult_tag = f"{mult_tag}+{gov_tag}" if mult_tag else gov_tag
     risk_frac, edge = sizing.effective_risk_fraction(
-        st.equity, closed=st.closed, entry=entry, floor=HALT_FLOOR,
+        st.equity, closed=st.closed, entry=entry, floor=effective_floor(st),
     )
     cd_mult = cooldown_risk_mult()
     if cd_mult < 1:
@@ -1124,7 +1147,7 @@ def settle_due(client: KalshiClient, st: State):
 def summary(st: State) -> str:
     closed = [c for c in st.closed if c.get("filled")]
     rf, edge = sizing.effective_risk_fraction(
-        st.equity, closed=st.closed, floor=HALT_FLOOR,
+        st.equity, closed=st.closed, floor=effective_floor(st),
     )
     unit = sizing.contracts_for_equity(st.equity, risk_frac=rf)
     n = len(closed)
@@ -1387,7 +1410,8 @@ def main():
         f"{'' if TAKE_PROFIT_MIN_ENTRY<=0 else f', tp≥entry{TAKE_PROFIT_MIN_ENTRY:.2f}'}"
         f"{f', soft_spike≥{SOFT_SPIKE_TP:.2f}' if SOFT_SPIKE_TP>0 else ''}"
         f"{f', fade@{SPIKE_PEAK:.2f}-{SPIKE_GIVEBACK:.2f}' if SPIKE_FADE else ''})  "
-        f"halt_floor=${HALT_FLOOR:.2f}  "
+        f"halt_floor=${HALT_FLOOR:.2f}"
+        f"{f'+trail{HALT_TRAIL_FRAC:g}×HW' if HALT_TRAIL_FRAC > 0 else ''}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
         f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
@@ -1417,6 +1441,7 @@ def main():
                     update_live_fills(client, st)
                     sync_live_cash(client, st)
                 binance_manage_opens(client, st)
+                update_high_water(st)
                 enforce_halt(client, st)
                 settle_due(client, st)
                 now = time.time()
