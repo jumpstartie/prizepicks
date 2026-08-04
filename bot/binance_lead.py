@@ -86,9 +86,14 @@ class BinanceLeadFeed:
             window_sec if window_sec is not None
             else os.environ.get("BINANCE_LEAD_WINDOW_SEC", "15")
         )
+        # Aggressive short window for soft-entry gates / fast veto.
+        self.fast_window_sec = float(os.environ.get("BINANCE_FAST_WINDOW_SEC", "4"))
         self.base_threshold = float(
             threshold_pct if threshold_pct is not None
             else os.environ.get("BINANCE_LEAD_PCT", "0.0008")
+        )
+        self.fast_threshold = float(
+            os.environ.get("BINANCE_FAST_PCT", "0.0004")
         )
         self.vol_mult = float(os.environ.get("BINANCE_LEAD_VOL_MULT", "1.25"))
         self.poll_sec = float(
@@ -298,16 +303,25 @@ class BinanceLeadFeed:
             return 0.0, latest_px
         return (latest_px - base_px) / base_px, latest_px
 
-    def _compute_locked(self, symbol: str, now: float | None = None) -> LeadSignal:
+    def _compute_locked(
+        self,
+        symbol: str,
+        now: float | None = None,
+        window_sec: float | None = None,
+        base_threshold: float | None = None,
+    ) -> LeadSignal:
         now = now if now is not None else time.time()
+        window = self.window_sec if window_sec is None else float(window_sec)
+        base_thr = self.base_threshold if base_threshold is None else float(base_threshold)
         hist = self._hist.get(symbol) or deque()
         if not hist:
-            return LeadSignal(symbol, "flat", 0.0, 0.0, self.window_sec, now, "")
-        ret, latest_px = self._ret_over(hist, self.window_sec, now)
+            return LeadSignal(symbol, "flat", 0.0, 0.0, window, now, "")
+        ret, latest_px = self._ret_over(hist, window, now)
         vol = self._vol_locked(hist)
-        thresh = max(self.base_threshold, self.vol_mult * vol * 0.25)
-        # also never below base
-        thresh = max(self.base_threshold, thresh)
+        # Short windows: scale vol term down so threshold stays aggressive.
+        vol_scale = 0.25 if window >= 10 else 0.15
+        thresh = max(base_thr, self.vol_mult * vol * vol_scale)
+        thresh = max(base_thr, thresh)
         if ret >= thresh:
             direction = "up"
         elif ret <= -thresh:
@@ -319,7 +333,7 @@ class BinanceLeadFeed:
         if self.confirm and direction != "flat":
             cb = self._cb_hist.get(symbol)
             if cb and len(cb) >= 2:
-                cb_ret, _ = self._ret_over(cb, self.window_sec, now)
+                cb_ret, _ = self._ret_over(cb, window, now)
                 if direction == "up":
                     confirmed = cb_ret > 0
                 else:
@@ -330,7 +344,7 @@ class BinanceLeadFeed:
             direction=direction,
             ret_pct=ret,
             price=latest_px,
-            window_sec=self.window_sec,
+            window_sec=window,
             ts=hist[-1][0],
             source=("binance-ws" if self._ws_ok else (self._active_base or "")),
             vol=vol,
@@ -338,27 +352,47 @@ class BinanceLeadFeed:
             confirmed=confirmed,
         )
 
-    def signal(self, ticker_or_series: str) -> LeadSignal | None:
+    def signal(self, ticker_or_series: str,
+               window_sec: float | None = None,
+               base_threshold: float | None = None) -> LeadSignal | None:
         sym = symbol_for(ticker_or_series)
         if not sym:
             return None
         with self._lock:
-            if sym in self._last:
+            # Default cached 15s signal; recompute when a custom window is requested.
+            if window_sec is None and base_threshold is None and sym in self._last:
                 return self._last[sym]
             if self._hist.get(sym):
-                return self._compute_locked(sym)
+                return self._compute_locked(
+                    sym, window_sec=window_sec, base_threshold=base_threshold,
+                )
         return None
+
+    def signal_fast(self, ticker_or_series: str) -> LeadSignal | None:
+        """Aggressive short-horizon lean for soft-entry decisions."""
+        return self.signal(
+            ticker_or_series,
+            window_sec=self.fast_window_sec,
+            base_threshold=self.fast_threshold,
+        )
 
     def agrees(self, ticker_or_series: str, kalshi_side: str,
                require_lean: bool = False,
-               require_confirm: bool = False) -> tuple[bool, LeadSignal | None, str]:
-        sig = self.signal(ticker_or_series)
+               require_confirm: bool = False,
+               window_sec: float | None = None,
+               base_threshold: float | None = None,
+               block_disagree_only: bool = False) -> tuple[bool, LeadSignal | None, str]:
+        sig = self.signal(
+            ticker_or_series, window_sec=window_sec, base_threshold=base_threshold,
+        )
         if sig is None:
             return True, None, "no_symbol"
         if sig.price <= 0:
             return True, sig, "no_data_yet"
         want = "up" if kalshi_side == "yes" else "down"
         if sig.direction == "flat":
+            if block_disagree_only:
+                return True, sig, "flat_allow_aggressive"
             if require_lean:
                 return False, sig, "flat_requires_lean"
             return True, sig, "flat_allow"

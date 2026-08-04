@@ -455,16 +455,32 @@ def soft_open_count(st: State) -> int:
 
 
 def soft_binance_ok(ticker: str, side: str, entry: float) -> tuple[bool, str]:
-    """For soft favorites, require a same-way Binance lean (skip flat/disagree)."""
+    """Soft favorites use the fast Binance window.
+
+    Aggressive mode: block only on short-horizon *disagree*. Flat is allowed so
+    we keep firing; same-way lean is preferred but not required.
+    """
     if entry >= SOFT_ENTRY_MAX or not SOFT_BINANCE_STRICT:
         return True, "ok"
     if not _lead_active() or LEAD_FEED is None:
         return True, "no_lead"
-    ok, sig, reason = LEAD_FEED.agrees(ticker, side, require_lean=True)
-    if ok and sig is not None and sig.direction != "flat":
-        return True, "soft_bn_agree"
-    detail = "n/a" if sig is None else f"{sig.direction}:{sig.ret_pct*100:+.3f}%"
-    return False, f"{reason}:{detail}"
+    # Prefer lean on the fast window; if flat, still allow (test limits).
+    # Only hard-block when the short-horizon tape disagrees with our side.
+    ok, sig, reason = LEAD_FEED.agrees(
+        ticker, side,
+        require_lean=False,
+        block_disagree_only=True,
+        window_sec=LEAD_FEED.fast_window_sec,
+        base_threshold=LEAD_FEED.fast_threshold,
+    )
+    if not ok:
+        detail = "n/a" if sig is None else (
+            f"{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
+        )
+        return False, f"{reason}:{detail}"
+    if sig is not None and sig.direction != "flat":
+        return True, f"soft_bn_fast_agree:{sig.direction}:{sig.ret_pct*100:+.3f}%/{sig.window_sec:.0f}s"
+    return True, f"soft_bn_fast_flat_allow:{reason}"
 
 
 def cooldown_risk_mult() -> float:
@@ -474,25 +490,21 @@ def cooldown_risk_mult() -> float:
 
 
 def note_loss_cooldown(st: State, pos: Position | dict, pnl: float) -> None:
-    """After clustered settle/stop losses, temporarily cut risk."""
+    """After clustered settle/stop losses, temporarily cut risk.
+
+    Caller should append the loss to st.closed before invoking.
+    """
     global _COOLDOWN_UNTIL, _COOLDOWN_RISK_MULT
     if pnl >= 0 or LOSS_COOLDOWN_LOSSES <= 0:
         return
     close_ts = float(pos["close_ts"] if isinstance(pos, dict) else pos.close_ts)
     bucket = int(close_ts // 900) if close_ts > 0 else 0
-    losses = 0
-    for c in st.closed[-30:]:
-        if (c.get("pnl") or 0) >= 0:
-            continue
-        cts = float(c.get("close_ts") or 0)
-        if cts > 0 and int(cts // 900) == bucket:
-            losses += 1
-    # include the loss just recorded (may already be in closed)
-    ticker = pos["ticker"] if isinstance(pos, dict) else pos.ticker
-    if not any(c.get("ticker") == ticker and (c.get("pnl") or 0) < 0
-               and int(float(c.get("close_ts") or 0) // 900) == bucket
-               for c in st.closed[-30:]):
-        losses += 1
+    losses = sum(
+        1 for c in st.closed[-30:]
+        if (c.get("pnl") or 0) < 0
+        and float(c.get("close_ts") or 0) > 0
+        and int(float(c.get("close_ts") or 0) // 900) == bucket
+    )
     if losses >= LOSS_COOLDOWN_LOSSES:
         _COOLDOWN_UNTIL = time.time() + LOSS_COOLDOWN_SEC
         _COOLDOWN_RISK_MULT = LOSS_COOLDOWN_RISK_MULT
@@ -1186,7 +1198,9 @@ def main():
             LEAD_FEED.start()
             log(f"binance lead ON mode={BINANCE_LEAD_MODE} symbols={syms} "
                 f"window={LEAD_FEED.window_sec:.0f}s "
-                f"thresh={100*LEAD_FEED.base_threshold:.3f}%")
+                f"thresh={100*LEAD_FEED.base_threshold:.3f}%  "
+                f"fast={LEAD_FEED.fast_window_sec:.0f}s@"
+                f"{100*LEAD_FEED.fast_threshold:.3f}%")
             # warm up a couple samples so first signals aren't empty
             time.sleep(min(4.0, LEAD_FEED.poll_sec * 2))
             log(LEAD_FEED.status_line())

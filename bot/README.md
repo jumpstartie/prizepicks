@@ -72,8 +72,10 @@ START_EQUITY=20 MODE=live \
 | `BINANCE_LEAD` | `1` | enable lead intel/filter |
 | `BINANCE_LEAD_MODE` | `filter` | `filter` / `strict` / `off` |
 | `BINANCE_WS` | `1` | use Binance trade WebSocket |
-| `BINANCE_LEAD_WINDOW_SEC` | `15` | lookback for spot return |
-| `BINANCE_LEAD_PCT` | `0.0008` | base lean threshold |
+| `BINANCE_LEAD_WINDOW_SEC` | `15` | lookback for spot return (rich / default) |
+| `BINANCE_LEAD_PCT` | `0.0008` | base lean threshold (15s) |
+| `BINANCE_FAST_WINDOW_SEC` | `4` | short lookback for soft-entry gates |
+| `BINANCE_FAST_PCT` | `0.0004` | aggressive lean threshold (4s) |
 | `BINANCE_LEAD_VOL_MULT` | `1.25` | vol-adjust multiplier |
 | `COINBASE_CONFIRM` | `1` | tag leans with Coinbase same-way check |
 

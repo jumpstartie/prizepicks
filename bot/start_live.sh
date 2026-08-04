@@ -27,7 +27,8 @@ export MAX_SPREAD=0.20
 export WINDOW_SEC=840
 export MIN_SECS_LEFT=15
 export CONFIRM_POLLS=1
-export POLL_SEC=3
+# Faster Kalshi loop so Binance fast-window leans get acted on sooner
+export POLL_SEC=1.5
 export MAX_CONCURRENT=6
 export MAX_EXPOSURE_FRAC=0.70
 export SERIES=KXBNB15M,KXSOL15M,KXXRP15M,KXETH15M
@@ -42,6 +43,7 @@ export SOFT_CORR_MAX=2
 export STAGE_SIZE=1
 export STAGE_SIZE_10M_MULT=0.50
 export STAGE_SIZE_5M_MULT=0.75
+# Soft BN uses fast window; block disagree only (flat still allowed = aggressive)
 export SOFT_BINANCE_STRICT=1
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=900
@@ -49,5 +51,9 @@ export LOSS_COOLDOWN_RISK_MULT=0.50
 export BINANCE_LEAD=1
 export BINANCE_WS=1
 export COINBASE_CONFIRM=1
+export BINANCE_LEAD_WINDOW_SEC=15
+export BINANCE_LEAD_PCT=0.0008
+export BINANCE_FAST_WINDOW_SEC=4
+export BINANCE_FAST_PCT=0.0004
 
 exec python3 -u bot/runner.py >> bot/runner_live.log 2>&1
