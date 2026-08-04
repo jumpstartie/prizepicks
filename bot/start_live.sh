@@ -79,5 +79,13 @@ export RISK_VETO=1
 export RISK_VETO_SYMBOLS=BTCUSDT,ETHUSDT
 export RISK_VETO_PCT=0.0012
 export RISK_VETO_WINDOW_SEC=15
+# Multi-venue confirm: Binance + OKX + Kraken (+ Coinbase) — need ≥2 same-way for full soft size
+export MULTI_VENUE=1
+export MULTI_VENUE_MIN_AGREE=2
+export MULTI_VENUE_WINDOW_SEC=4
+export MULTI_VENUE_PCT=0.0003
+export MULTI_VENUE_STRICT=0
+export OKX_CONFIRM=1
+export KRAKEN_CONFIRM=1
 
 exec python3 -u bot/runner.py >> bot/runner_live.log 2>&1

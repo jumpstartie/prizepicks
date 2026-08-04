@@ -57,6 +57,26 @@ COINBASE_PRODUCT = {
     "NEARUSDT": "NEAR-USD",
     "ZECUSDT": "ZEC-USD",
 }
+OKX_INST = {
+    "XRPUSDT": "XRP-USDT",
+    "BNBUSDT": "BNB-USDT",
+    "SOLUSDT": "SOL-USDT",
+    "BTCUSDT": "BTC-USDT",
+    "ETHUSDT": "ETH-USDT",
+    "DOGEUSDT": "DOGE-USDT",
+    "NEARUSDT": "NEAR-USDT",
+    "ZECUSDT": "ZEC-USDT",
+}
+# Kraken public ticker pair codes
+KRAKEN_PAIR = {
+    "BTCUSDT": "XBTUSD",
+    "ETHUSDT": "ETHUSD",
+    "SOLUSDT": "SOLUSD",
+    "BNBUSDT": "BNBUSD",
+    "XRPUSDT": "XRPUSD",
+    "DOGEUSDT": "DOGEUSD",
+    "NEARUSDT": "NEARUSD",
+}
 # Always keep majors subscribed for cross-asset risk veto.
 RISK_VETO_SYMBOLS = tuple(
     s.strip().upper()
@@ -140,6 +160,25 @@ class BinanceLeadFeed:
         )
         self.risk_veto_pct = float(os.environ.get("RISK_VETO_PCT", "0.0012"))
         self.risk_veto_window = float(os.environ.get("RISK_VETO_WINDOW_SEC", "15"))
+        # Multi-venue confirm: Binance + OKX + Kraken (+ Coinbase) votes
+        self.multi_venue = os.environ.get("MULTI_VENUE", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.multi_venue_min = int(os.environ.get("MULTI_VENUE_MIN_AGREE", "2"))
+        self.multi_venue_window = float(
+            os.environ.get("MULTI_VENUE_WINDOW_SEC", str(self.fast_window_sec))
+        )
+        self.multi_venue_pct = float(os.environ.get("MULTI_VENUE_PCT", "0.0003"))
+        # If BN leans but venues can't confirm → half-size (0) or block (1)
+        self.multi_venue_strict = os.environ.get("MULTI_VENUE_STRICT", "0").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.okx_enabled = os.environ.get("OKX_CONFIRM", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
+        self.kraken_enabled = os.environ.get("KRAKEN_CONFIRM", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
         self.bases = bases
         # Always subscribe majors used for risk veto
         for maj in RISK_VETO_SYMBOLS:
@@ -151,6 +190,12 @@ class BinanceLeadFeed:
         self._cb_hist: dict[str, Deque[tuple[float, float]]] = {
             s: deque(maxlen=600) for s in self.symbols
         }
+        self._okx_hist: dict[str, Deque[tuple[float, float]]] = {
+            s: deque(maxlen=600) for s in self.symbols
+        }
+        self._kraken_hist: dict[str, Deque[tuple[float, float]]] = {
+            s: deque(maxlen=600) for s in self.symbols
+        }
         self._last: dict[str, LeadSignal] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -158,6 +203,8 @@ class BinanceLeadFeed:
         self._active_base: str | None = None
         self._last_error: str = ""
         self._ws_ok = False
+        self._okx_ok = False
+        self._kraken_ok = False
 
     # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -176,6 +223,14 @@ class BinanceLeadFeed:
             t3 = threading.Thread(target=self._coinbase_loop, name="coinbase", daemon=True)
             t3.start()
             self._threads.append(t3)
+        if self.multi_venue and self.okx_enabled:
+            t4 = threading.Thread(target=self._okx_loop, name="okx", daemon=True)
+            t4.start()
+            self._threads.append(t4)
+        if self.multi_venue and self.kraken_enabled:
+            t5 = threading.Thread(target=self._kraken_loop, name="kraken", daemon=True)
+            t5.start()
+            self._threads.append(t5)
 
     def stop(self) -> None:
         self._stop.set()
@@ -192,6 +247,8 @@ class BinanceLeadFeed:
                 self.symbols.append(sym)
                 self._hist[sym] = deque(maxlen=5000)
                 self._cb_hist[sym] = deque(maxlen=600)
+                self._okx_hist[sym] = deque(maxlen=600)
+                self._kraken_hist[sym] = deque(maxlen=600)
                 added.append(sym)
         return added
 
@@ -308,6 +365,65 @@ class BinanceLeadFeed:
                             self._last[sym] = self._compute_locked(sym, now)
                 except Exception:
                     pass
+            self._stop.wait(max(2.0, self.poll_sec))
+
+    def _okx_loop(self) -> None:
+        while not self._stop.is_set():
+            for sym in list(self.symbols):
+                inst = OKX_INST.get(sym)
+                if not inst:
+                    continue
+                url = f"https://www.okx.com/api/v5/market/ticker?instId={inst}"
+                try:
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "kalshi-lead-bot/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode())
+                    rows = data.get("data") or []
+                    if not rows:
+                        continue
+                    px = float(rows[0]["last"])
+                    now = time.time()
+                    with self._lock:
+                        if sym not in self._okx_hist:
+                            self._okx_hist[sym] = deque(maxlen=600)
+                        self._okx_hist[sym].append((now, px))
+                        self._okx_ok = True
+                except Exception as e:
+                    self._okx_ok = False
+                    self._last_error = f"okx: {e}"
+            self._stop.wait(max(2.0, self.poll_sec))
+
+    def _kraken_loop(self) -> None:
+        while not self._stop.is_set():
+            for sym in list(self.symbols):
+                pair = KRAKEN_PAIR.get(sym)
+                if not pair:
+                    continue
+                url = f"https://api.kraken.com/0/public/Ticker?pair={pair}"
+                try:
+                    req = urllib.request.Request(
+                        url, headers={"User-Agent": "kalshi-lead-bot/1.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode())
+                    if data.get("error"):
+                        continue
+                    result = data.get("result") or {}
+                    if not result:
+                        continue
+                    row = next(iter(result.values()))
+                    px = float(row["c"][0])  # last trade close
+                    now = time.time()
+                    with self._lock:
+                        if sym not in self._kraken_hist:
+                            self._kraken_hist[sym] = deque(maxlen=600)
+                        self._kraken_hist[sym].append((now, px))
+                        self._kraken_ok = True
+                except Exception as e:
+                    self._kraken_ok = False
+                    self._last_error = f"kraken: {e}"
             self._stop.wait(max(2.0, self.poll_sec))
 
     # --- signal math -------------------------------------------------------
@@ -516,6 +632,73 @@ class BinanceLeadFeed:
                     )
         return True, ""
 
+    def _dir_from_ret(self, ret: float, thresh: float) -> str:
+        if ret >= thresh:
+            return "up"
+        if ret <= -thresh:
+            return "down"
+        return "flat"
+
+    def venue_votes(self, ticker_or_series: str,
+                     window_sec: float | None = None,
+                     thresh: float | None = None) -> list[tuple[str, str, float]]:
+        """Return [(venue, direction, ret)] for Binance/OKX/Kraken/Coinbase."""
+        sym = symbol_for(ticker_or_series)
+        if not sym:
+            return []
+        window = self.multi_venue_window if window_sec is None else float(window_sec)
+        thr = self.multi_venue_pct if thresh is None else float(thresh)
+        now = time.time()
+        out: list[tuple[str, str, float]] = []
+        with self._lock:
+            # Binance primary hist
+            bn = self._hist.get(sym)
+            if bn and len(bn) >= 2:
+                ret, _ = self._ret_over(bn, window, now)
+                out.append(("bn", self._dir_from_ret(ret, thr), ret))
+            if self.okx_enabled:
+                hx = self._okx_hist.get(sym)
+                if hx and len(hx) >= 2:
+                    ret, _ = self._ret_over(hx, window, now)
+                    out.append(("okx", self._dir_from_ret(ret, thr), ret))
+            if self.kraken_enabled:
+                hx = self._kraken_hist.get(sym)
+                if hx and len(hx) >= 2:
+                    ret, _ = self._ret_over(hx, window, now)
+                    out.append(("kraken", self._dir_from_ret(ret, thr), ret))
+            if self.confirm:
+                hx = self._cb_hist.get(sym)
+                if hx and len(hx) >= 2:
+                    ret, _ = self._ret_over(hx, window, now)
+                    out.append(("cb", self._dir_from_ret(ret, thr), ret))
+        return out
+
+    def multi_venue_confirm(
+        self, ticker_or_series: str, kalshi_side: str,
+    ) -> tuple[str, int, int, str]:
+        """Multi-venue vote for soft full-size.
+
+        Returns (status, agree_n, venue_n, detail) where status is:
+          confirmed | weak | unavailable
+        """
+        if not self.multi_venue:
+            return "confirmed", 0, 0, "multi_off"
+        want = "up" if kalshi_side == "yes" else "down"
+        votes = self.venue_votes(ticker_or_series)
+        if not votes:
+            return "unavailable", 0, 0, "no_votes"
+        agree = sum(1 for _v, d, _r in votes if d == want)
+        against = sum(1 for _v, d, _r in votes if d not in ("flat", want))
+        detail = ",".join(
+            f"{v}:{d}{r*100:+.3f}%" for v, d, r in votes
+        )
+        # Need enough same-way votes; any hard against without enough agrees → weak
+        if agree >= self.multi_venue_min:
+            return "confirmed", agree, len(votes), detail
+        if against > 0 and agree < self.multi_venue_min:
+            return "weak", agree, len(votes), detail
+        return "weak", agree, len(votes), detail
+
     def status_line(self) -> str:
         with self._lock:
             parts = []
@@ -545,6 +728,12 @@ class BinanceLeadFeed:
             if self.risk_veto_enabled:
                 extras.append(
                     f"veto={'/'.join(RISK_VETO_SYMBOLS)}@{self.risk_veto_pct*100:.2f}%"
+                )
+            if self.multi_venue:
+                extras.append(
+                    f"multi≥{self.multi_venue_min}"
+                    f"(okx={'Y' if self._okx_ok else 'n'}"
+                    f"/kraken={'Y' if self._kraken_ok else 'n'})"
                 )
             extra = (" " + " ".join(extras)) if extras else ""
         return f"binance[{src}] " + " ".join(parts) + extra + err

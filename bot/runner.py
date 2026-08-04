@@ -552,9 +552,26 @@ def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float
     )
     if not ok:
         return False, 0.0, f"{reason}:{detail}"
-    if sig is not None and sig.direction != "flat":
-        return True, SOFT_BN_AGREE_MULT, f"bnagree×{SOFT_BN_AGREE_MULT:g}:{detail}"
-    return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}"
+    if sig is None or sig.direction == "flat":
+        return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}"
+    # Binance leans our way — require multi-venue confirm for full size
+    mv_status, agree_n, venue_n, mv_detail = LEAD_FEED.multi_venue_confirm(ticker, side)
+    mv_tag = f"mv{agree_n}/{venue_n}[{mv_detail}]"
+    if mv_status == "confirmed":
+        return True, SOFT_BN_AGREE_MULT, (
+            f"bnagree×{SOFT_BN_AGREE_MULT:g}:{detail}+{mv_tag}"
+        )
+    if mv_status == "unavailable":
+        # Feeds still warming — allow half size, don't block
+        return True, SOFT_BN_FLAT_MULT, (
+            f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}+{mv_tag}"
+        )
+    # weak confirm
+    if getattr(LEAD_FEED, "multi_venue_strict", False):
+        return False, 0.0, f"multi_venue_weak:{detail}+{mv_tag}"
+    return True, SOFT_BN_FLAT_MULT, (
+        f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}+{mv_tag}"
+    )
 
 
 def cooldown_risk_mult() -> float:
@@ -1308,7 +1325,9 @@ def main():
                 f"{100*LEAD_FEED.fast_threshold:.3f}%  "
                 f"taker_flow={'ON' if LEAD_FEED.taker_flow else 'OFF'}  "
                 f"risk_veto={'ON' if LEAD_FEED.risk_veto_enabled else 'OFF'}"
-                f"@{100*LEAD_FEED.risk_veto_pct:.2f}%")
+                f"@{100*LEAD_FEED.risk_veto_pct:.2f}%  "
+                f"multi_venue={'ON' if LEAD_FEED.multi_venue else 'OFF'}"
+                f"≥{LEAD_FEED.multi_venue_min}")
             # warm up a couple samples so first signals aren't empty
             time.sleep(min(4.0, LEAD_FEED.poll_sec * 2))
             log(LEAD_FEED.status_line())
@@ -1341,6 +1360,9 @@ def main():
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
         f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
         f"soft_corr≤{SOFT_CORR_MAX}  "
+        f"phase=early≥{time_phase.EARLY_WINDOW_SEC:.0f}s×{time_phase.EARLY_SIZE_MULT:g}/"
+        f"late≤{time_phase.LATE_WINDOW_SEC:.0f}s≠≥{time_phase.LATE_RICH_ENTRY:g}/"
+        f"prior_bias={'ON' if time_phase.PRIOR_DIR_BIAS else 'OFF'}  "
         f"stage_size={'ON' if STAGE_SIZE else 'OFF'}  "
         f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
         f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "
