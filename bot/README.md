@@ -13,9 +13,10 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ## $20 test sizing (edge-aware)
 
 ```
-bankroll≈$21
-risk/trade ≈ 8–22% of equity (EDGE_SIZING), halt-capped to survive ~3 losses to $15
-stop-loss OFF — hold favorites to settlement / spike TP ≥ 0.98
+bankroll≈$69 (post +$50 pause)
+risk/trade ≈ 10–25% of equity (EDGE_SIZING), halt floor $40
+soft favorites (<85¢) sized ×0.5 / early ×0.25
+stop-loss OFF — hold favorites to settlement / spike TP ≥ 0.995
 binance lead ON (ws + filter)
 ```
 
@@ -55,7 +56,7 @@ START_EQUITY=20 MODE=live \
 | `MAX_SPREAD` | `0.20` | skip if yes ask−bid wider than this |
 | `STOP_LOSS_PCT` | `0` | stop-loss disabled |
 | `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this |
-| `HALT_FLOOR` | `15.0` | stop the run if equity ≤ this ($) |
+| `HALT_FLOOR` | `40.0` | stop the run if equity ≤ this ($) |
 | `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
 | `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut |
 | `SOFT_ENTRY_SIZE_MULT` | `0.50` | multiplier for soft favorites |
@@ -63,11 +64,11 @@ START_EQUITY=20 MODE=live \
 | `SOFT_ENTRY_EARLY_MULT` | `0.50` | extra multiplier stacked on soft+early entries |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
 | `EDGE_SIZING` | `1` | dynamic risk from live edge |
-| `RISK_FRAC_MIN` / `MAX` | `0.08` / `0.22` | hard band for edge sizer |
+| `RISK_FRAC_MIN` / `MAX` | `0.10` / `0.25` | hard band for edge sizer |
 | `EDGE_LOOKBACK` | `30` | recent filled closes for WR/EV |
 | `EDGE_MIN_SAMPLES` | `8` | below this, blend toward base risk |
 | `EDGE_KELLY_FRAC` | `0.25` | fraction of full Kelly to use |
-| `HALT_LOSS_BUFFER` | `3` | size so ~N full losses stay above halt |
+| `HALT_LOSS_BUFFER` | `1` | size so ~N full losses stay above halt |
 | `BINANCE_LEAD` | `1` | enable lead intel/filter |
 | `BINANCE_LEAD_MODE` | `filter` | `filter` / `strict` / `off` |
 | `BINANCE_WS` | `1` | use Binance trade WebSocket |

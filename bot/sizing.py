@@ -18,20 +18,20 @@ WIN_RATE = 0.95
 
 # Risk controls for a ~$20 test account (profit-first sizing)
 RISK_FRACTION = 0.18              # base ~$3.8/trade; overridden by edge sizer
-RISK_FRAC_MIN = float(os.environ.get("RISK_FRAC_MIN", "0.10"))   # ~$2.1 on $21
-RISK_FRAC_MAX = float(os.environ.get("RISK_FRAC_MAX", "0.22"))   # ~$4.7 on $21
+RISK_FRAC_MIN = float(os.environ.get("RISK_FRAC_MIN", "0.10"))   # ~$6.9 on $69
+RISK_FRAC_MAX = float(os.environ.get("RISK_FRAC_MAX", "0.25"))   # modest bump off 0.22
 EDGE_SIZING = os.environ.get("EDGE_SIZING", "1").lower() in ("1", "true", "yes", "on")
 EDGE_LOOKBACK = int(os.environ.get("EDGE_LOOKBACK", "30"))       # recent filled closes
 EDGE_MIN_SAMPLES = int(os.environ.get("EDGE_MIN_SAMPLES", "8"))
 EDGE_KELLY_FRAC = float(os.environ.get("EDGE_KELLY_FRAC", "0.25"))  # quarter-Kelly
 EDGE_PRIOR_WR = float(os.environ.get("EDGE_PRIOR_WR", "0.93"))
 EDGE_PRIOR_STRENGTH = float(os.environ.get("EDGE_PRIOR_STRENGTH", "12"))  # pseudo-counts
-# 2 full losses to the $15 floor on a ~$21 book ⇒ ~15% max risk (~$3+)
-HALT_LOSS_BUFFER = int(os.environ.get("HALT_LOSS_BUFFER", "2"))
+# 1 full-loss buffer to the raised floor so MAX risk can still bind near ~$70
+HALT_LOSS_BUFFER = int(os.environ.get("HALT_LOSS_BUFFER", "1"))
 MAX_EXPOSURE_FRAC = 0.60
 MAX_CONCURRENT = 7
 HALT_EQUITY_FRAC = 0.50
-HALT_FLOOR_DOLLARS = 15.0
+HALT_FLOOR_DOLLARS = 40.0
 MIN_CONTRACTS = 0.01
 CONTRACT_STEP = 0.01
 
