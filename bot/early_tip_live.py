@@ -8,6 +8,7 @@ SAFETY / ARMING
   - Starts DISARMED. Arms itself only when the paper observer record
     (bot/early_tip_obs.jsonl) plus its own settled fills reach
     ARM_WINS wins with <= ARM_MAX_LOSSES losses (default 5-0).
+    Set EARLY_ARM_WINS=0 to force-arm (see start_early_live.sh).
   - Auto-disarms for the day after DAY_STOP_LOSS dollars of losses or
     3 losses in the last 10 settles.
   - Small fixed stakes (STAKE_FRAC of balance, capped STAKE_CAP dollars),
