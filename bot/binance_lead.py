@@ -77,6 +77,17 @@ KRAKEN_PAIR = {
     "DOGEUSDT": "DOGEUSD",
     "NEARUSDT": "NEARUSD",
 }
+# Pyth Hermes price-feed ids (Crypto.X/USD), resolved live 2026-08-04
+PYTH_IDS = {
+    "BTCUSDT": "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+    "ETHUSDT": "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    "SOLUSDT": "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+    "BNBUSDT": "2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f",
+    "XRPUSDT": "ec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8",
+    "DOGEUSDT": "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
+    "NEARUSDT": "c415de8d2eba7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750",
+}
+PYTH_HERMES = os.environ.get("PYTH_HERMES", "https://hermes.pyth.network")
 # Always keep majors subscribed for cross-asset risk veto.
 RISK_VETO_SYMBOLS = tuple(
     s.strip().upper()
@@ -179,6 +190,9 @@ class BinanceLeadFeed:
         self.kraken_enabled = os.environ.get("KRAKEN_CONFIRM", "1").lower() in (
             "1", "true", "yes", "on"
         )
+        self.pyth_enabled = os.environ.get("PYTH_CONFIRM", "1").lower() in (
+            "1", "true", "yes", "on"
+        )
         self.bases = bases
         # Always subscribe majors used for risk veto
         for maj in RISK_VETO_SYMBOLS:
@@ -196,6 +210,9 @@ class BinanceLeadFeed:
         self._kraken_hist: dict[str, Deque[tuple[float, float]]] = {
             s: deque(maxlen=600) for s in self.symbols
         }
+        self._pyth_hist: dict[str, Deque[tuple[float, float]]] = {
+            s: deque(maxlen=600) for s in self.symbols
+        }
         self._last: dict[str, LeadSignal] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -205,6 +222,7 @@ class BinanceLeadFeed:
         self._ws_ok = False
         self._okx_ok = False
         self._kraken_ok = False
+        self._pyth_ok = False
 
     # --- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -231,6 +249,10 @@ class BinanceLeadFeed:
             t5 = threading.Thread(target=self._kraken_loop, name="kraken", daemon=True)
             t5.start()
             self._threads.append(t5)
+        if self.multi_venue and self.pyth_enabled:
+            t6 = threading.Thread(target=self._pyth_loop, name="pyth", daemon=True)
+            t6.start()
+            self._threads.append(t6)
 
     def stop(self) -> None:
         self._stop.set()
@@ -249,6 +271,7 @@ class BinanceLeadFeed:
                 self._cb_hist[sym] = deque(maxlen=600)
                 self._okx_hist[sym] = deque(maxlen=600)
                 self._kraken_hist[sym] = deque(maxlen=600)
+                self._pyth_hist[sym] = deque(maxlen=600)
                 added.append(sym)
         return added
 
@@ -424,6 +447,46 @@ class BinanceLeadFeed:
                 except Exception as e:
                     self._kraken_ok = False
                     self._last_error = f"kraken: {e}"
+            self._stop.wait(max(2.0, self.poll_sec))
+
+    def _pyth_loop(self) -> None:
+        """Batch-poll Pyth Hermes for all mapped symbols in one request."""
+        while not self._stop.is_set():
+            id_syms = [(PYTH_IDS[s], s) for s in list(self.symbols) if s in PYTH_IDS]
+            if not id_syms:
+                self._stop.wait(10)
+                continue
+            q = "&".join(f"ids%5B%5D={i}" for i, _ in id_syms)
+            url = f"{PYTH_HERMES}/v2/updates/price/latest?{q}"
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "kalshi-lead-bot/1.0",
+                                  "Accept": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    data = json.loads(resp.read().decode())
+                by_id = {i: s for i, s in id_syms}
+                with self._lock:
+                    for p in data.get("parsed") or []:
+                        sym = by_id.get(p.get("id"))
+                        if not sym:
+                            continue
+                        pr = p.get("price") or {}
+                        try:
+                            px = float(pr["price"]) * (10 ** int(pr["expo"]))
+                            ts = float(pr.get("publish_time") or time.time())
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        if sym not in self._pyth_hist:
+                            self._pyth_hist[sym] = deque(maxlen=600)
+                        h = self._pyth_hist[sym]
+                        # de-dupe identical publish times
+                        if not h or h[-1][0] != ts:
+                            h.append((ts, px))
+                    self._pyth_ok = True
+            except Exception as e:
+                self._pyth_ok = False
+                self._last_error = f"pyth: {e}"
             self._stop.wait(max(2.0, self.poll_sec))
 
     # --- signal math -------------------------------------------------------
@@ -671,6 +734,11 @@ class BinanceLeadFeed:
                 if hx and len(hx) >= 2:
                     ret, _ = self._ret_over(hx, window, now)
                     out.append(("cb", self._dir_from_ret(ret, thr), ret))
+            if self.pyth_enabled:
+                hx = self._pyth_hist.get(sym)
+                if hx and len(hx) >= 2:
+                    ret, _ = self._ret_over(hx, window, now)
+                    out.append(("pyth", self._dir_from_ret(ret, thr), ret))
         return out
 
     def multi_venue_confirm(
@@ -733,7 +801,8 @@ class BinanceLeadFeed:
                 extras.append(
                     f"multi≥{self.multi_venue_min}"
                     f"(okx={'Y' if self._okx_ok else 'n'}"
-                    f"/kraken={'Y' if self._kraken_ok else 'n'})"
+                    f"/kraken={'Y' if self._kraken_ok else 'n'}"
+                    f"/pyth={'Y' if self._pyth_ok else 'n'})"
                 )
             extra = (" " + " ".join(extras)) if extras else ""
         return f"binance[{src}] " + " ".join(parts) + extra + err

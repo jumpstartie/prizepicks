@@ -111,5 +111,7 @@ export MULTI_VENUE_PCT=0.0003
 export MULTI_VENUE_STRICT=0
 export OKX_CONFIRM=1
 export KRAKEN_CONFIRM=1
+# Pyth oracle as 5th voter (settlement-style data, one batch call for all symbols)
+export PYTH_CONFIRM=1
 
 exec python3 -u bot/runner.py >> bot/runner_live.log 2>&1
