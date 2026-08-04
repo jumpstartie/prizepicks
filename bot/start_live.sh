@@ -15,8 +15,8 @@ export RISK_FRAC_MIN=0.13
 # Kelly pulled back after 17:30 hot-ticket cluster pressed the floor
 export RISK_FRAC_MAX=0.25
 export EDGE_KELLY_FRAC=0.33
-# Static floor eased so we keep firing after a halt (was $100 / HW×0.70)
-export HALT_FLOOR=95
+# SPRINT floor: lock most of today's gain — worst case walk away ≥ $105
+export HALT_FLOOR=105
 # Trailing floor: ratchets to 70% of realized (flat) high-water — protection
 # grows with the book but always leaves ~30% drawdown room to keep trading
 export HALT_TRAIL_FRAC=0.70
@@ -34,7 +34,9 @@ export SPIKE_FADE=1
 export SPIKE_PEAK=0.93
 export SPIKE_GIVEBACK=0.06
 export SPIKE_MIN_GAIN=0.03
-export PRICE_LO=0.70
+# SPRINT MODE: only mid/rich favorites (soft <85¢ was the variance source;
+# 85–95¢ ran ~96–100% WR last sessions). Fewer, surer tickets.
+export PRICE_LO=0.85
 export PRICE_HI=0.999
 # Skip thin-margin rich favorites — redeploy into fatter 70–90¢ books
 export SKIP_ENTRY_RICH=0.95
