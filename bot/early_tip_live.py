@@ -8,9 +8,9 @@ SAFETY / ARMING
   - Starts DISARMED. Arms itself only when the paper observer record
     (bot/early_tip_obs.jsonl) plus its own settled fills reach
     ARM_WINS wins with <= ARM_MAX_LOSSES losses (default 5-0).
-    Set EARLY_ARM_WINS=0 to force-arm (see start_early_live.sh).
+    Set EARLY_FORCE_ARM=1 to skip the paper W/L gate (see start_early_live.sh).
   - Auto-disarms for the day after DAY_STOP_LOSS dollars of losses or
-    3 losses in the last 10 settles.
+    3 losses in the last 10 settles (still applies under force-arm).
   - Small fixed stakes (STAKE_FRAC of balance, capped STAKE_CAP dollars),
     MAX_OPEN concurrent, one shot per ticker.
 
@@ -45,7 +45,9 @@ MAX_OPEN = int(os.environ.get("EARLY_MAX_OPEN", "2"))
 POLL_SEC = float(os.environ.get("EARLY_POLL_SEC", "2"))
 ARM_WINS = int(os.environ.get("EARLY_ARM_WINS", "5"))
 ARM_MAX_LOSSES = int(os.environ.get("EARLY_ARM_MAX_LOSSES", "0"))
+FORCE_ARM = os.environ.get("EARLY_FORCE_ARM", "0").strip() in ("1", "true", "yes")
 DAY_STOP_LOSS = float(os.environ.get("EARLY_DAY_STOP_LOSS", "15"))
+DISARM_LOSSES_IN_10 = int(os.environ.get("EARLY_DISARM_LOSSES_IN_10", "3"))
 
 OBS_PATH = Path("bot/early_tip_obs.jsonl")
 TRADES_PATH = Path("bot/early_tip_trades.jsonl")
@@ -95,25 +97,34 @@ def armed_status() -> tuple[bool, str]:
     rows = record_rows()
     wins = sum(1 for o in rows if o.get("won"))
     losses = sum(1 for o in rows if o.get("won") == 0)
-    if wins < ARM_WINS or losses > ARM_MAX_LOSSES:
+    if not FORCE_ARM and (wins < ARM_WINS or losses > ARM_MAX_LOSSES):
         return False, f"disarmed {wins}-{losses} (need {ARM_WINS}-{ARM_MAX_LOSSES})"
-    last10 = rows[-10:]
-    if sum(1 for o in last10 if o.get("won") == 0) >= 3:
-        return False, f"disarmed: 3+ losses in last 10"
-    # daily loss stop on our own live fills
+    # daily loss stop on our own live fills only (paper losses don't count)
     today = time.strftime("%Y-%m-%d")
     day_pnl = 0.0
+    live_rows = []
     if TRADES_PATH.exists():
         for line in TRADES_PATH.read_text().splitlines():
             try:
                 o = json.loads(line)
             except Exception:
                 continue
+            live_rows.append(o)
             if o.get("day") == today and o.get("pnl") is not None:
                 day_pnl += float(o["pnl"])
     if day_pnl <= -DAY_STOP_LOSS:
         return False, f"disarmed: day stop {day_pnl:+.2f}"
-    return True, f"armed {wins}-{losses} day_pnl={day_pnl:+.2f}"
+    # Streak disarm: paper+live when gated; LIVE-only under force-arm so a
+    # single paper miss can't kill the module after we intentionally go live.
+    if FORCE_ARM:
+        streak = [o for o in live_rows if o.get("won") is not None][-10:]
+        tag = "FORCE"
+    else:
+        streak = rows[-10:]
+        tag = "armed"
+    if sum(1 for o in streak if o.get("won") == 0) >= DISARM_LOSSES_IN_10:
+        return False, f"disarmed: {DISARM_LOSSES_IN_10}+ losses in last 10"
+    return True, f"{tag} {wins}-{losses} day_pnl={day_pnl:+.2f}"
 
 
 def main() -> None:
@@ -122,9 +133,10 @@ def main() -> None:
         symbols=sorted({s for t in SERIES if (s := symbol_for(t))})
     )
     feed.start()
+    arm_desc = "FORCE" if FORCE_ARM else f"{ARM_WINS}-{ARM_MAX_LOSSES}"
     log(f"early-tip live up series={SERIES} strong≥{100*STRONG_PCT:.3f}% "
         f"mv≥{MV_MIN_AGREE} fav≤{FAV_MAX} entry≤{ENTRY_MAX} "
-        f"stake={STAKE_FRAC:.0%}/${STAKE_CAP:.0f} arm={ARM_WINS}-{ARM_MAX_LOSSES}")
+        f"stake={STAKE_FRAC:.0%}/${STAKE_CAP:.0f} arm={arm_desc}")
 
     open_pos: dict[str, dict] = {}
     done: set[str] = set()
