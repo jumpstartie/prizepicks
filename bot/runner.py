@@ -40,7 +40,7 @@ SERIES = [
 # Optional half-size satellites (also scanned for signals)
 SATELLITE_SERIES = set(
     s.strip()
-    for s in os.environ.get("SATELLITE_SERIES", "KXBTC15M").split(",")
+    for s in os.environ.get("SATELLITE_SERIES", "KXBTC15M,KXDOGE15M,KXNEAR15M").split(",")
     if s.strip()
 )
 SATELLITE_SIZE_MULT = float(os.environ.get("SATELLITE_SIZE_MULT", "0.5"))
@@ -85,7 +85,7 @@ SOFT_ENTRY_EARLY_SECS = float(os.environ.get("SOFT_ENTRY_EARLY_SECS", "300"))
 # 1.0 = disabled.
 SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "1.0"))
 # Cap how many soft (<SOFT_ENTRY_MAX) positions can be open together (corr risk).
-SOFT_CORR_MAX = int(os.environ.get("SOFT_CORR_MAX", "2"))
+SOFT_CORR_MAX = int(os.environ.get("SOFT_CORR_MAX", "3"))
 # Staged size by time-left: >10m ×0.5, >5m ×0.75, else full.
 STAGE_SIZE = os.environ.get("STAGE_SIZE", "1").lower() in ("1", "true", "yes", "on")
 STAGE_SIZE_10M_MULT = float(os.environ.get("STAGE_SIZE_10M_MULT", "0.50"))
