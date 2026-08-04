@@ -475,12 +475,25 @@ def halt_reason(st: State) -> str | None:
     return None
 
 
+_HALT_BREACHES = 0
+# Consecutive breach reads required — transient cash-vs-fill races (boot,
+# balance sync landing before a fill is recorded) must not trip the floor.
+HALT_CONFIRM_POLLS = int(os.environ.get("HALT_CONFIRM_POLLS", "2"))
+
+
 def enforce_halt(client: KalshiClient, st: State) -> bool:
     """If loss floor or profit target hit, cancel resting orders and freeze entries."""
+    global _HALT_BREACHES
     if st.halted:
         return True
     why = halt_reason(st)
     if why is None:
+        _HALT_BREACHES = 0
+        return False
+    _HALT_BREACHES += 1
+    if _HALT_BREACHES < HALT_CONFIRM_POLLS:
+        log(f"halt breach {_HALT_BREACHES}/{HALT_CONFIRM_POLLS} "
+            f"(equity=${st.equity:.2f}) — confirming before halt")
         return False
     st.halted = True
     profit = st.equity - st.start_equity
