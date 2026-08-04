@@ -83,7 +83,8 @@ HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
 SOFT_ENTRY_MAX = float(os.environ.get("SOFT_ENTRY_MAX", "0.85"))
 SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "0.50"))
 SOFT_ENTRY_EARLY_SECS = float(os.environ.get("SOFT_ENTRY_EARLY_SECS", "300"))
-SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "0.50"))
+# 1.0 = disabled. Keep soft favorites at half size; no extra early cut.
+SOFT_ENTRY_EARLY_MULT = float(os.environ.get("SOFT_ENTRY_EARLY_MULT", "1.0"))
 # Concurrent positions: allow one per series, up to exposure budget
 MAX_CONCURRENT = int(os.environ.get("MAX_CONCURRENT", str(sizing.MAX_CONCURRENT)))
 MAX_EXPOSURE_FRAC = float(os.environ.get("MAX_EXPOSURE_FRAC", str(sizing.MAX_EXPOSURE_FRAC)))

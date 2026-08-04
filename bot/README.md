@@ -15,7 +15,7 @@ Paper/live bot for the near-expiry favorite strategy researched in `research/`.
 ```
 bankroll≈$69 (post +$50 pause)
 risk/trade ≈ 10–25% of equity (EDGE_SIZING), halt floor $40
-soft favorites (<85¢) sized ×0.5 / early ×0.25
+soft favorites (<85¢) sized ×0.5 (no extra early cut)
 stop-loss OFF — hold favorites to settlement / spike TP ≥ 0.995
 binance lead ON (ws + filter)
 ```
@@ -61,7 +61,7 @@ START_EQUITY=20 MODE=live \
 | `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut |
 | `SOFT_ENTRY_SIZE_MULT` | `0.50` | multiplier for soft favorites |
 | `SOFT_ENTRY_EARLY_SECS` | `300` | extra soft cut if more than this many secs left |
-| `SOFT_ENTRY_EARLY_MULT` | `0.50` | extra multiplier stacked on soft+early entries |
+| `SOFT_ENTRY_EARLY_MULT` | `1.0` | extra soft+early multiplier (1.0 = off) |
 | `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
 | `EDGE_SIZING` | `1` | dynamic risk from live edge |
 | `RISK_FRAC_MIN` / `MAX` | `0.10` / `0.25` | hard band for edge sizer |
