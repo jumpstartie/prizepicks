@@ -10,19 +10,22 @@ set +a
 export MODE=live
 export START_EQUITY=20
 export EDGE_SIZING=1
-export RISK_FRACTION=0.18
-export RISK_FRAC_MIN=0.13
+export RISK_FRACTION=0.22
+export RISK_FRAC_MIN=0.18
 # RATCHET: press Kelly while hot; trailing floor locks gains as HW climbs
 export RISK_FRAC_MAX=0.30
 export EDGE_KELLY_FRAC=0.40
-# Overnight compound: shorter edge window + clip the -$88 outlier so Kelly
-# can press again instead of staying stuck on cut_neg_edge @13%.
+# Overnight compound: shorter edge window + clip oversized losers in Kelly
+# sample; stronger prior so three rich scratch losses don't pin us at floor.
 export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=20
+export EDGE_PRIOR_STRENGTH=24
+export EDGE_PRIOR_WR=0.92
 # Hard ticket cost cap — the 101-contract ETH nuke must not repeat
 export TICKET_COST_CAP_FRAC=0.28
-# Static floor is the launch pad; 0.70×HW ratchet takes over as book grows
-export HALT_FLOOR=95
+# Book is ~$98 — floor at $95 left ~$3 of room (instant halt). Open room
+# for overnight compound; trail 0.70×HW still locks gains as we climb.
+export HALT_FLOOR=78
 # Trailing floor: ratchets to 70% of realized (flat) high-water — protection
 # grows with the book but always leaves ~30% drawdown room to keep trading
 export HALT_TRAIL_FRAC=0.70
@@ -50,8 +53,8 @@ export SPIKE_MIN_GAIN=0.03
 # every big loser today was soft + bn=flat; those stay blocked below.
 export PRICE_LO=0.70
 export PRICE_HI=0.999
-# Skip thin-margin rich favorites — redeploy into fatter 70–90¢ books
-export SKIP_ENTRY_RICH=0.95
+# Overnight: skip skinny rich ≥92¢ (recent 94¢ NO losers); press 70–90¢
+export SKIP_ENTRY_RICH=0.92
 export MAX_SPREAD=0.20
 export WINDOW_SEC=840
 export MIN_SECS_LEFT=15
