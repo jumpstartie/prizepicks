@@ -57,9 +57,10 @@ export CONFIRM_POLLS=1
 export POLL_SEC=1.25
 export MAX_CONCURRENT=5
 export MAX_EXPOSURE_FRAC=0.70
-# Printers only. Drop SOL/NEAR/metals. ETH satellite after nukes.
+# Solid core only — the consistent printers (BNB/XRP/BTC).
+# DOGE was fine but dilutes; ETH/SOL/NEAR/metals were the WR/PnL drains.
 export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
-export SATELLITE_SERIES=KXDOGE15M,KXETH15M
+export SATELLITE_SERIES=
 export SATELLITE_SIZE_MULT=0.5
 export METALS_SERIES=
 export METALS_SESSION=0
