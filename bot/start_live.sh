@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# ANTI-NUKE core printer — BNB/XRP/BTC.
+# RTP-20 — Ratchet TP Printer (counter-strategy to get back toward 20-0).
 #
-# Today's nukes were ALL soft/mid + bn=flat held to settle
-# (BTC 91–92¢ skipped the soft BN gate at 90¢; ETH/SOL rode flat to −$18/−$10).
-# TP/fade were green. Fix:
-#   1) BN gate covers the whole tradable band (<95¢)
-#   2) block bn=flat entries (agree-only)
-#   3) flatten soft/mid before binary settle
-#   4) tighter ticket cap
+# EVIDENCE (live book):
+#   core flat + TP/fade     → +$183 @ 100% WR   (THE printer)
+#   soft/mid + flat + settle → −$266            (THE nuke)
+#   cost ≥ $15 tickets      → −$41             (size tails)
+#   agree-only (no flat)    → only 19 trades   (starves streak)
+#   setup_gov / ETH / SOL / metals → expectancy killers
+#
+# COUNTER = day-1 printer ENTRY + forced bank EXIT + light ratchet lock-in.
+#   • Allow bn=flat soft/mid (half size) — that IS the 20-0 engine
+#   • Never ride them to binary settle (TP / fade / pre-settle flatten)
+#   • Core BNB/XRP/BTC only · 15% ticket cap · trail floor locks climbs
+#   • Governors / early-tip / metals OFF
 set -euo pipefail
 cd /workspace
 set -a
@@ -19,20 +24,21 @@ export MODE=live
 export START_EQUITY=20
 export EDGE_SIZING=1
 export RISK_FRACTION=0.18
-export RISK_FRAC_MIN=0.14
-export RISK_FRAC_MAX=0.25
+export RISK_FRAC_MIN=0.15
+export RISK_FRAC_MAX=0.24
 export EDGE_KELLY_FRAC=0.35
 export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
 export EDGE_PRIOR_WR=0.93
-export HALT_FLOOR=45
-export HALT_TRAIL_FRAC=0
+# Static pad under ~$57–65 book; trail locks gains once HW climbs on flat cash
+export HALT_FLOOR=42
+export HALT_TRAIL_FRAC=0.65
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
-# Bank winners — do not ride soft/mid to settle
+# BANK — the whole edge vs settle
 export TAKE_PROFIT_ABS=0.97
 export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
@@ -42,20 +48,21 @@ export SPIKE_FADE=1
 export SPIKE_PEAK=0.92
 export SPIKE_GIVEBACK=0.05
 export SPIKE_MIN_GAIN=0.03
-# Flatten soft/mid in the last minute — never binary-settle the nuke band
+# Never binary-settle the soft/mid band
 export PRE_SETTLE_EXIT_SECS=60
 export PRE_SETTLE_MAX_ENTRY=0.95
 export EQUITY_HARVEST=0
+# Fat 70–94¢ books; skip skinny ≥95¢
 export PRICE_LO=0.70
 export PRICE_HI=0.999
 export SKIP_ENTRY_RICH=0.95
 export MAX_SPREAD=0.18
 export WINDOW_SEC=840
-export MIN_SECS_LEFT=20
+export MIN_SECS_LEFT=25
 export CONFIRM_POLLS=1
 export POLL_SEC=1.25
-export MAX_CONCURRENT=4
-export MAX_EXPOSURE_FRAC=0.65
+export MAX_CONCURRENT=3
+export MAX_EXPOSURE_FRAC=0.60
 export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
 export SATELLITE_SERIES=
 export SATELLITE_SIZE_MULT=0.5
@@ -63,7 +70,7 @@ export METALS_SERIES=
 export METALS_SESSION=0
 export SERIES_GOV=0
 export SETUP_GOV=0
-# Gate covers ALL tradable entries (skip-rich is 95¢) so 91–92¢ can't bypass BN
+# BN gate on all tradable (<95¢) so 91–92¢ can't bypass
 export SOFT_ENTRY_MAX=0.95
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
@@ -72,10 +79,10 @@ export SOFT_CORR_MAX=2
 export STAGE_SIZE=0
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.20
-# Block bn=flat — every big loser today
-export SOFT_BN_FLAT_MULT=0
+# ALLOW flat at half size — counterfactual printer; pre-settle blocks the nuke
+export SOFT_BN_FLAT_MULT=0.50
 export MAX_SIZE_MULT=1.20
-# One loss can't be a nuke
+# Size tails (cost≥$15) were net negative — hard cap
 export TICKET_COST_CAP_FRAC=0.15
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=300
