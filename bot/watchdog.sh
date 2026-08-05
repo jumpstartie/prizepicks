@@ -126,6 +126,12 @@ if not state_path.exists():
 st = json.loads(state_path.read_text())
 if not st.get("halted"):
     raise SystemExit(0)
+# Never auto-clear bankroll-save / profit locks
+reason = str(st.get("halt_reason") or "")
+save_flag = Path("bot/SAVE_BANKROLL.flag")
+if save_flag.exists() or reason in ("cash_target", "profit_target"):
+    print(f"HALTED locked reason={reason or 'SAVE_BANKROLL'} — no unhalt")
+    raise SystemExit(0)
 floor = float(os.environ.get("HALT_FLOOR", "60"))
 hw = float(st.get("high_water") or 0)
 trail = float(os.environ.get("HALT_TRAIL_FRAC", "0.65"))
@@ -145,6 +151,7 @@ if pos:
     raise SystemExit(0)
 if cash >= eff + buf:
     st["halted"] = False
+    st["halt_reason"] = ""
     if hw > cash * 1.15:
         st["high_water"] = cash
         print(f"UNHALT cash=${cash:.2f} — cleared + HW→${cash:.2f}")
@@ -206,6 +213,14 @@ while true; do
     fi
   fi
   LAST_WALL=$NOW
+
+  if [[ -f bot/SAVE_BANKROLL.flag ]]; then
+    log "SAVE_BANKROLL — not restarting runner (cash target locked)"
+    touch "$PAUSE_FLAG"
+    touch_wd_hb
+    sleep "$CHECK_SEC"
+    continue
+  fi
 
   if [[ -f "$PAUSE_FLAG" ]]; then
     log "PAUSED — rm $PAUSE_FLAG to resume"

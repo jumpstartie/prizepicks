@@ -36,6 +36,8 @@ export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0.65
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
+# Lock the book once flat cash clears $105 (writes bot/SAVE_BANKROLL.flag)
+export HALT_CASH_TARGET=105
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
 # BANK — the whole edge vs settle

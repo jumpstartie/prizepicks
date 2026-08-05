@@ -111,6 +111,11 @@ HALT_FLOOR = float(os.environ.get("HALT_FLOOR", "70.0"))
 HALT_TRAIL_FRAC = float(os.environ.get("HALT_TRAIL_FRAC", "0.70"))
 # Bank +$N from start_equity, then freeze new entries (0 = disabled)
 HALT_PROFIT = float(os.environ.get("HALT_PROFIT", "0"))
+# Absolute flat-cash take-profit: freeze + write SAVE_BANKROLL.flag (0 = off)
+HALT_CASH_TARGET = float(os.environ.get("HALT_CASH_TARGET", "0"))
+SAVE_BANKROLL_FLAG = Path(os.environ.get(
+    "SAVE_BANKROLL_FLAG", "bot/SAVE_BANKROLL.flag",
+))
 # Soft favorites: SIZE_MULT=1.0 disables the flat cut (strategy #3 full max-frequency).
 SOFT_ENTRY_MAX = float(os.environ.get("SOFT_ENTRY_MAX", "0.85"))
 SOFT_ENTRY_SIZE_MULT = float(os.environ.get("SOFT_ENTRY_SIZE_MULT", "1.0"))
@@ -220,6 +225,7 @@ class State:
     closed: list[dict] = field(default_factory=list)
     signaled: list[str] = field(default_factory=list)  # tickers already acted on
     halted: bool = False  # True once loss floor / drawdown halt trips
+    halt_reason: str = ""  # loss_floor | profit_target | cash_target | …
     # series_root -> last settled market direction ("up"|"down")
     last_settle_dir: dict = field(default_factory=dict)
     # highest realized (flat) cash seen — basis for the trailing floor
@@ -245,6 +251,7 @@ class State:
             "closed": self.closed,
             "signaled": self.signaled,
             "halted": self.halted,
+            "halt_reason": self.halt_reason,
             "last_settle_dir": self.last_settle_dir,
             "high_water": self.high_water,
             "saved_at": time.time(),
@@ -258,6 +265,7 @@ class State:
             st = cls(start_equity=d["start_equity"], cash=d["cash"], mode=d["mode"],
                      signaled=d.get("signaled", []), closed=d.get("closed", []),
                      halted=bool(d.get("halted", False)),
+                     halt_reason=str(d.get("halt_reason") or ""),
                      last_settle_dir=dict(d.get("last_settle_dir") or {}),
                      high_water=float(d.get("high_water") or 0.0))
             fields = set(Position.__dataclass_fields__)
@@ -491,6 +499,9 @@ def update_high_water(st: State) -> None:
 
 def halt_reason(st: State) -> str | None:
     """Return why we should halt, or None if still trading."""
+    # Prefer locking realized cash (not marked equity with opens).
+    if HALT_CASH_TARGET > 0 and st.cash + 1e-9 >= HALT_CASH_TARGET:
+        return "cash_target"
     if sizing.should_halt(st.equity, st.start_equity, floor=effective_floor(st)):
         return "loss_floor"
     if sizing.should_halt_profit(st.equity, st.start_equity, HALT_PROFIT):
@@ -519,8 +530,19 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
             f"(equity=${st.equity:.2f}) — confirming before halt")
         return False
     st.halted = True
+    st.halt_reason = why
     profit = st.equity - st.start_equity
-    if why == "profit_target":
+    if why == "cash_target":
+        log(f"HALT CASH TARGET cash=${st.cash:.2f} >= ${HALT_CASH_TARGET:.2f} "
+            f"— saving bankroll, no new trades")
+        try:
+            SAVE_BANKROLL_FLAG.write_text(
+                f"cash={st.cash:.4f} target={HALT_CASH_TARGET:.2f} "
+                f"ts={time.time()}\n"
+            )
+        except Exception as e:
+            log(f"SAVE_BANKROLL flag write failed: {e}")
+    elif why == "profit_target":
         log(f"HALT RUN PROFIT equity=${st.equity:.2f} "
             f"(+${profit:.2f} >= target ${HALT_PROFIT:.2f}; "
             f"start ${st.start_equity:.2f}) — no new trades")
@@ -543,6 +565,7 @@ def enforce_halt(client: KalshiClient, st: State) -> bool:
     append_trade_log({
         "event": "halt", "reason": why, "equity": st.equity,
         "profit": profit, "profit_target": HALT_PROFIT,
+        "cash_target": HALT_CASH_TARGET,
         "floor": effective_floor(st), "static_floor": HALT_FLOOR,
         "high_water": st.high_water,
         "start_equity": st.start_equity, "cash": st.cash,
@@ -1632,6 +1655,7 @@ def main():
         f"halt_floor=${HALT_FLOOR:.2f}"
         f"{f'+trail{HALT_TRAIL_FRAC:g}×HW' if HALT_TRAIL_FRAC > 0 else ''}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
+        f"cash_target={'OFF' if HALT_CASH_TARGET <= 0 else f'${HALT_CASH_TARGET:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
         f"{f'/early>{SOFT_ENTRY_EARLY_SECS:g}s×{SOFT_ENTRY_EARLY_MULT:g}' if SOFT_ENTRY_EARLY_MULT < 1 else ''}  "
         f"soft_corr≤{SOFT_CORR_MAX}"
@@ -1648,6 +1672,9 @@ def main():
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
     if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
+    elif HALT_CASH_TARGET > 0:
+        log(f"cash save armed: halt & SAVE_BANKROLL when flat cash >= "
+            f"${HALT_CASH_TARGET:.2f} (now ${st.cash:.2f})")
     elif HALT_PROFIT > 0:
         tgt = st.start_equity + HALT_PROFIT
         log(f"profit pause armed: halt new entries at equity >= ${tgt:.2f} "

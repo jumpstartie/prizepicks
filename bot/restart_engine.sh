@@ -43,7 +43,20 @@ ensure_tmux() {
 }
 
 log "=== FULL ENGINE RESTART ==="
-rm -f bot/PAUSED.flag
+rm -f bot/PAUSED.flag bot/SAVE_BANKROLL.flag bot/profit_target_hit.flag
+# Clear prior halt locks so a fresh climb can run
+python3 - <<'PY' || true
+import json
+from pathlib import Path
+p = Path("bot/state_live.json")
+if p.exists():
+    st = json.loads(p.read_text())
+    if st.get("halted") or st.get("halt_reason"):
+        st["halted"] = False
+        st["halt_reason"] = ""
+        p.write_text(json.dumps(st, indent=2))
+        print("cleared halted/halt_reason for fresh run")
+PY
 
 log "stopping keep_alive / watchdog / runner / extmon"
 kill_bash_script "bot/keep_alive.sh" || true

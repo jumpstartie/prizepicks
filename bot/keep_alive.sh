@@ -127,6 +127,22 @@ start_external_monitor
 LAST_WALL=$(date +%s)
 
 while true; do
+  # Bankroll save lock — do not clear pause or respawn the printer
+  if [[ -f bot/SAVE_BANKROLL.flag ]]; then
+    log "SAVE_BANKROLL armed — paused (cash target hit). rm bot/SAVE_BANKROLL.flag to resume"
+    touch bot/PAUSED.flag
+    # Keep extmon/watchdog heartbeats alive but do not restart runner
+    age=$(hb_age "$WD_HB")
+    pid=$(wd_pid)
+    if [[ -z "${pid}" || "$age" -ge "$WD_STALE_SEC" ]]; then
+      log "WATCHDOG down/stale while SAVE_BANKROLL — respawn watchdog only"
+      start_watchdog
+    fi
+    start_external_monitor
+    sleep "$CHECK_SEC"
+    continue
+  fi
+
   rm -f bot/PAUSED.flag
   NOW=$(date +%s)
   JUMP=$((NOW - LAST_WALL))
