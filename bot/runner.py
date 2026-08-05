@@ -454,7 +454,18 @@ def place_live_maker(client: KalshiClient, ticker: str, side: str, entry: float,
             log(f"post-only cross on {ticker}, requote {attempt+1}/{MAX_REQUOTES} "
                 f"{side} {entry:.2f}->{nxt:.2f}")
             entry = nxt
-    return None, side, entry, last_err
+    # Maker kept crossing — take the fill so we don't sit out a whole window.
+    book_side = "bid" if side == "yes" else "ask"
+    book_price = entry if side == "yes" else round(1.0 - entry, 4)
+    try:
+        log(f"post-only exhausted on {ticker} — IOC taker {side} @{entry:.2f}")
+        resp = client.create_order(
+            ticker, book_side, unit, book_price, post_only=False,
+            time_in_force="immediate_or_cancel",
+        )
+        return resp, side, entry, None
+    except Exception as e:
+        return None, side, entry, e if last_err is None else last_err
 
 
 def effective_floor(st: State) -> float:

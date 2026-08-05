@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Night-shift watchdog: keep favorite-maker powering through.
-# - Respects bot/PAUSED.flag
-# - Restarts dead PIDs
-# - Kills+restarts STALE runners (alive PID but loop stuck — the real overnight break)
-# - Auto-unhalts when flat + cash above floor+buffer
-# - Early-tip optional (EARLY_WATCH=0 by default)
+# CRITICAL: never block the restart loop on Kalshi API calls (timeout-wrapped).
+# Touches bot/watchdog.heartbeat every cycle so keep_alive.sh can revive US.
 set -u
 cd /workspace
 LOG=bot/watchdog.log
+WD_HB=bot/watchdog.heartbeat
 PAUSE_FLAG=bot/PAUSED.flag
 STATE=bot/state_live.json
 HB_FILE=bot/runner.heartbeat
@@ -15,12 +13,18 @@ RUNNER_LOG=bot/runner_live.log
 TMUX_CFG=/exec-daemon/tmux.portal.conf
 EARLY_WATCH="${EARLY_WATCH:-0}"
 OBSERVER_WATCH="${OBSERVER_WATCH:-1}"
-CHECK_SEC="${WATCHDOG_CHECK_SEC:-10}"
-STALE_SEC="${WATCHDOG_STALE_SEC:-90}"
+CHECK_SEC="${WATCHDOG_CHECK_SEC:-8}"
+STALE_SEC="${WATCHDOG_STALE_SEC:-75}"
 UNHALT_BUFFER="${WATCHDOG_UNHALT_BUFFER:-3}"
+API_TIMEOUT="${WATCHDOG_API_TIMEOUT:-12}"
 mkdir -p bot
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
+
+touch_wd_hb() {
+  # FIRST thing every loop — proves watchdog itself is alive
+  date +%s.%N > "$WD_HB" 2>/dev/null || date +%s > "$WD_HB"
+}
 
 exact_python() {
   local frag="$1"
@@ -41,35 +45,20 @@ for pid in os.listdir("/proc"):
 PY
 }
 
-kill_exact() {
-  local frag="$1"
-  local pid
-  pid=$(exact_python "$frag" || true)
-  if [[ -n "${pid}" ]]; then
-    log "KILL stale/dead $frag pid=$pid"
-    kill -9 "$pid" 2>/dev/null || true
-    sleep 0.5
-  fi
-}
-
 hb_age_sec() {
   python3 - <<'PY' "$HB_FILE" "$RUNNER_LOG"
-import os, re, time, sys
+import re, time, sys
 from pathlib import Path
 hb, logp = Path(sys.argv[1]), Path(sys.argv[2])
 now = time.time()
-# Prefer explicit heartbeat file (loop touch)
 if hb.exists():
     try:
         ts = float(hb.read_text().strip().split()[0])
-        print(int(max(0, now - ts)))
-        raise SystemExit
+        print(int(max(0, now - ts))); raise SystemExit
     except Exception:
         pass
-# Fallback: last timestamp in runner log
 if logp.exists():
     try:
-        # read last 8KB
         data = logp.read_bytes()[-8192:].decode(errors="ignore")
         matches = list(re.finditer(r"\[(\d{2}):(\d{2}):(\d{2})\]", data))
         if matches:
@@ -77,11 +66,9 @@ if logp.exists():
             h, m, s = map(int, matches[-1].groups())
             today = dt.datetime.now()
             ts = today.replace(hour=h, minute=m, second=s, microsecond=0).timestamp()
-            # handle midnight wrap
             if ts - now > 3600:
                 ts -= 86400
-            print(int(max(0, now - ts)))
-            raise SystemExit
+            print(int(max(0, now - ts))); raise SystemExit
     except Exception:
         pass
 print(99999)
@@ -101,7 +88,7 @@ ensure_tmux() {
   pid=$(exact_python "$frag" || true)
   if [[ -z "${pid}" ]]; then
     log "RESTART $name (no PID for $frag)"
-    tmux -f "$TMUX_CFG" send-keys -t "$name" C-c
+    tmux -f "$TMUX_CFG" send-keys -t "$name" C-c 2>/dev/null || true
     sleep 0.4
     tmux -f "$TMUX_CFG" send-keys -t "$name" "$cmd" C-m
     sleep 2
@@ -123,13 +110,13 @@ maybe_kill_stale_runner() {
     log "STALE runner pid=$pid heartbeat_age=${age}s ≥ ${STALE_SEC}s — force restart"
     kill -9 "$pid" 2>/dev/null || true
     sleep 0.5
-    # clear stale heartbeat so we don't loop-kill a fresh boot before first touch
     rm -f "$HB_FILE"
   fi
 }
 
+# API helpers MUST be timeout-wrapped — a hung Kalshi call froze us for ~7h.
 maybe_unhalt() {
-  python3 - <<'PY' "$STATE" "$UNHALT_BUFFER"
+  timeout "$API_TIMEOUT" python3 - <<'PY' "$STATE" "$UNHALT_BUFFER" || echo "UNHALT_TIMEOUT"
 import json, os, sys
 from pathlib import Path
 state_path = Path(sys.argv[1])
@@ -160,17 +147,17 @@ if cash >= eff + buf:
     st["halted"] = False
     if hw > cash * 1.15:
         st["high_water"] = cash
-        print(f"UNHALT cash=${cash:.2f} floor=${eff:.2f} — cleared halt + reanchor HW ${hw:.2f}→${cash:.2f}")
+        print(f"UNHALT cash=${cash:.2f} — cleared + HW→${cash:.2f}")
     else:
-        print(f"UNHALT cash=${cash:.2f} floor=${eff:.2f} — cleared halt")
+        print(f"UNHALT cash=${cash:.2f} floor=${eff:.2f}")
     state_path.write_text(json.dumps(st, indent=2))
 else:
-    print(f"HALTED cash=${cash:.2f} < floor+buf ${eff+buf:.2f} — stay halted")
+    print(f"HALTED cash=${cash:.2f} < ${eff+buf:.2f}")
 PY
 }
 
 heartbeat() {
-  python3 - <<'PY' "$STATE"
+  timeout "$API_TIMEOUT" python3 - <<'PY' "$STATE" || echo "HB_TIMEOUT"
 import json, sys
 from pathlib import Path
 try:
@@ -196,21 +183,21 @@ print(msg)
 PY
 }
 
-log "watchdog up check=${CHECK_SEC}s stale=${STALE_SEC}s early=${EARLY_WATCH} observer=${OBSERVER_WATCH}"
+rm -f "$PAUSE_FLAG"
+log "watchdog up check=${CHECK_SEC}s stale=${STALE_SEC}s api_timeout=${API_TIMEOUT}s early=${EARLY_WATCH}"
 export HALT_FLOOR="${HALT_FLOOR:-60}"
 export HALT_TRAIL_FRAC="${HALT_TRAIL_FRAC:-0.65}"
 
 while true; do
+  touch_wd_hb
+
   if [[ -f "$PAUSE_FLAG" ]]; then
-    log "PAUSED — not restarting (rm $PAUSE_FLAG to resume)"
-    log "$(heartbeat || true)"
+    log "PAUSED — rm $PAUSE_FLAG to resume"
     sleep "$CHECK_SEC"
     continue
   fi
 
-  out=$(maybe_unhalt 2>&1 || true)
-  [[ -n "$out" ]] && log "$out"
-
+  # Restarts FIRST (never wait on API before ensuring runner lives)
   maybe_kill_stale_runner
   ensure_tmux kalshi-live 'bash bot/start_live.sh' 'bot/runner.py'
 
@@ -219,14 +206,17 @@ while true; do
       'bash bot/start_early_live.sh 2>&1 | tee -a bot/early_tip_live.log' \
       'bot/early_tip_live.py'
   fi
-
   if [[ "$OBSERVER_WATCH" == "1" ]]; then
     ensure_tmux kalshi-observer \
       'set -a; source secrets/env.sh; set +a; python3 -u bot/early_tip_observer.py 2>&1 | tee -a bot/observer.log' \
       'bot/early_tip_observer.py'
   fi
 
+  out=$(maybe_unhalt 2>&1 || true)
+  [[ -n "$out" && "$out" != "" ]] && log "$out"
+
   age=$(hb_age_sec)
-  log "$(heartbeat || true) runner_hb_age=${age}s"
+  log "$(heartbeat 2>&1 || true) runner_hb_age=${age}s"
+  touch_wd_hb
   sleep "$CHECK_SEC"
 done
