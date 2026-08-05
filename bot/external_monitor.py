@@ -86,15 +86,16 @@ def runner_pids() -> list[int]:
 
 
 def script_pids(script: str) -> list[int]:
+    """Match bash <script> exactly (avoid substring false positives)."""
     out = []
     for pid in os.listdir("/proc"):
         if not pid.isdigit():
             continue
         args = _cmdline(pid)
-        joined = " ".join(args)
-        if "extglob" in joined:
+        if not args or not args[0].endswith("bash"):
             continue
-        if args and args[0].endswith("bash") and any(script in a for a in args):
+        # Exact script arg, e.g. bot/keep_alive.sh — not a parent that mentions it.
+        if any(a == script or a.endswith("/" + script) for a in args):
             out.append(int(pid))
     return out
 
