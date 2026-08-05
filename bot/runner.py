@@ -85,6 +85,11 @@ SPIKE_FADE = os.environ.get("SPIKE_FADE", "1").lower() in ("1", "true", "yes", "
 SPIKE_PEAK = float(os.environ.get("SPIKE_PEAK", "0.93"))
 SPIKE_GIVEBACK = float(os.environ.get("SPIKE_GIVEBACK", "0.06"))
 SPIKE_MIN_GAIN = float(os.environ.get("SPIKE_MIN_GAIN", "0.03"))
+# Anti-nuke: never ride soft/mid favorites to binary settle. Flatten at mark
+# when ≤ PRE_SETTLE_EXIT_SECS remain (0 = off). Settle was today's −$57 drain;
+# TP/fade were green.
+PRE_SETTLE_EXIT_SECS = float(os.environ.get("PRE_SETTLE_EXIT_SECS", "0"))
+PRE_SETTLE_MAX_ENTRY = float(os.environ.get("PRE_SETTLE_MAX_ENTRY", "0.95"))
 # Hard per-ticket cost ceiling — size mults must never stack past this
 # fraction of equity, nor past the room above the halt floor (one loss
 # can't breach the floor). Fixes the 46%-of-book ETH ticket.
@@ -1217,6 +1222,16 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
             log(f"spike fade {p.ticker} {p.side} entry={p.entry:.2f} "
                 f"peak={p.peak_mark:.2f} mark={mark:.2f} — locking gain")
             close_position_exit(client, st, p, mark, "spike_fade")
+            continue
+
+        # Anti-nuke: soft/mid must not ride to binary settle (today's −$18/−$21s).
+        if (PRE_SETTLE_EXIT_SECS > 0
+                and secs_left <= PRE_SETTLE_EXIT_SECS
+                and (p.entry or 0) < PRE_SETTLE_MAX_ENTRY
+                and secs_left > 0):
+            log(f"pre-settle exit {p.ticker} {p.side} entry={p.entry:.2f} "
+                f"mark={mark:.2f} {secs_left:.0f}s left — no binary ride")
+            close_position_exit(client, st, p, mark, "pre_settle")
             continue
 
         # Stop-loss (off when STOP_LOSS_PCT <= 0); also disabled in final minute

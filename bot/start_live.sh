@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
-# HOT STREAK — day-1 / day-2 printer, not the nuke stack.
+# ANTI-NUKE core printer — BNB/XRP/BTC.
 #
-# What actually made the money (from live book):
-#   soft/mid + take_profit  ≈ +$260
-#   soft/mid + settle       ≈ −$230  (the drain)
-# Best coins: XRP / BNB / BTC. SOL & metals & NEAR were net drains.
-# ETH printed day-1 then became the nuke magnet — satellite only.
-#
-# Playbook: press 70–90¢ favorites, BANK via TP/spike-fade, half-size
-# on bn=flat (don't block — flat+TP was the streak). No governors,
-# no early-tip, no metals. Tight ticket cap so one settle can't end the day.
+# Today's nukes were ALL soft/mid + bn=flat held to settle
+# (BTC 91–92¢ skipped the soft BN gate at 90¢; ETH/SOL rode flat to −$18/−$10).
+# TP/fade were green. Fix:
+#   1) BN gate covers the whole tradable band (<95¢)
+#   2) block bn=flat entries (agree-only)
+#   3) flatten soft/mid before binary settle
+#   4) tighter ticket cap
 set -euo pipefail
 cd /workspace
 set -a
@@ -20,22 +18,21 @@ set +a
 export MODE=live
 export START_EQUITY=20
 export EDGE_SIZING=1
-export RISK_FRACTION=0.20
-export RISK_FRAC_MIN=0.16
-export RISK_FRAC_MAX=0.28
-export EDGE_KELLY_FRAC=0.40
+export RISK_FRACTION=0.18
+export RISK_FRAC_MIN=0.14
+export RISK_FRAC_MAX=0.25
+export EDGE_KELLY_FRAC=0.35
 export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
 export EDGE_PRIOR_WR=0.93
-# ~$72 book → room to trade; trail off so we don't self-halt mid-sprint
-export HALT_FLOOR=48
+export HALT_FLOOR=45
 export HALT_TRAIL_FRAC=0
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
-# BANK winners — this is the whole edge vs riding to settle
+# Bank winners — do not ride soft/mid to settle
 export TAKE_PROFIT_ABS=0.97
 export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
@@ -45,8 +42,10 @@ export SPIKE_FADE=1
 export SPIKE_PEAK=0.92
 export SPIKE_GIVEBACK=0.05
 export SPIKE_MIN_GAIN=0.03
+# Flatten soft/mid in the last minute — never binary-settle the nuke band
+export PRE_SETTLE_EXIT_SECS=60
+export PRE_SETTLE_MAX_ENTRY=0.95
 export EQUITY_HARVEST=0
-# Fat mid books; skip skinny ≥95¢
 export PRICE_LO=0.70
 export PRICE_HI=0.999
 export SKIP_ENTRY_RICH=0.95
@@ -55,10 +54,8 @@ export WINDOW_SEC=840
 export MIN_SECS_LEFT=20
 export CONFIRM_POLLS=1
 export POLL_SEC=1.25
-export MAX_CONCURRENT=5
-export MAX_EXPOSURE_FRAC=0.70
-# Solid core only — the consistent printers (BNB/XRP/BTC).
-# DOGE was fine but dilutes; ETH/SOL/NEAR/metals were the WR/PnL drains.
+export MAX_CONCURRENT=4
+export MAX_EXPOSURE_FRAC=0.65
 export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
 export SATELLITE_SERIES=
 export SATELLITE_SIZE_MULT=0.5
@@ -66,20 +63,20 @@ export METALS_SERIES=
 export METALS_SESSION=0
 export SERIES_GOV=0
 export SETUP_GOV=0
-# Soft/mid through 90¢ — day-1 money band
-export SOFT_ENTRY_MAX=0.90
+# Gate covers ALL tradable entries (skip-rich is 95¢) so 91–92¢ can't bypass BN
+export SOFT_ENTRY_MAX=0.95
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
 export SOFT_ENTRY_EARLY_MULT=1.0
-export SOFT_CORR_MAX=3
+export SOFT_CORR_MAX=2
 export STAGE_SIZE=0
 export SOFT_BINANCE_STRICT=1
-export SOFT_BN_AGREE_MULT=1.25
-# Half-size on flat (do NOT block — flat+TP printed the streak)
-export SOFT_BN_FLAT_MULT=0.50
-export MAX_SIZE_MULT=1.25
-# One bad settle ≤ ~20% of book
-export TICKET_COST_CAP_FRAC=0.20
+export SOFT_BN_AGREE_MULT=1.20
+# Block bn=flat — every big loser today
+export SOFT_BN_FLAT_MULT=0
+export MAX_SIZE_MULT=1.20
+# One loss can't be a nuke
+export TICKET_COST_CAP_FRAC=0.15
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=300
 export LOSS_COOLDOWN_RISK_MULT=0.50
