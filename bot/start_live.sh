@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# RTP-20 + 80% merge — printer exits + lognormal/venue/time gates.
+# RTP-20 printer replay — the pattern that 2×–8×’d the live book.
 #
 # EVIDENCE (live book):
-#   core flat + TP/fade     → +$183 @ 100% WR   (THE printer)
-#   soft/mid + flat + settle → −$266            (THE nuke)
-#   cost ≥ $15 tickets      → −$41             (size tails)
-#   agree-only (no flat)    → only 19 trades   (starves streak)
-#   setup_gov / ETH / SOL / metals → expectancy killers
+#   core flat + TP/fade     → +$199 @ 100% WR   (THE printer)
+#   $20 → $79 in 52-win streak; peak ~$161 (~8×)
+#   soft/mid + flat + settle → −$263            (THE nuke)
+#   lognormal 0.65/0.03 merge → 0 fills (starved)
 #
-# MERGE (80%+ WR intent):
-#   • Keep RTP-20 exits (TP / fade / pre-settle) + core + 15% ticket
-#   • Lognormal digital gate: model_prob≥0.65 & edge≥0.03
-#   • Confirm≥2 · secs_left ∈ [180,780] · favorites that model also likes
-#   • Flat still allowed at ×0.50 (printer fuel); disagree still blocked
+# REPLAY:
+#   • Core BNB/XRP/BTC · 70–94¢ · bn=flat ×0.50 allowed
+#   • Bank: TP 97¢ / soft spike / fade / pre-settle @60s
+#   • Ticket ≤15% · concurrent 3 · $20 floor stop
+#   • Lognormal OFF · confirm=1 · full window (frequency)
+#   • Governors / early-tip / metals / satellites OFF
 set -euo pipefail
 cd /workspace
 set -a
@@ -31,8 +31,8 @@ export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
 export EDGE_PRIOR_WR=0.93
-# Static pad under ~$57–65 book; trail locks gains once HW climbs on flat cash
-export HALT_FLOOR=42
+# User risk box: hard stop at $20; trail locks climbs on flat cash
+export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0.65
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
@@ -58,20 +58,19 @@ export PRICE_HI=0.999
 export SKIP_ENTRY_RICH=0.95
 export MAX_SPREAD=0.18
 export WINDOW_SEC=840
-# 80% merge: mid-window favorites only (3–13m left)
-export MIN_SECS_LEFT=180
-export MAX_SECS_LEFT=780
-export CONFIRM_POLLS=2
+# Printer frequency — day-1 style
+export MIN_SECS_LEFT=25
+export MAX_SECS_LEFT=0
+export CONFIRM_POLLS=1
 export POLL_SEC=1.25
-# Driftless lognormal digital — favorites the model also likes
-export LOGNORMAL_GATE=1
+# Lognormal overlay OFF (starved the printer)
+export LOGNORMAL_GATE=0
 export LOGNORMAL_MIN_EDGE=0.03
 export LOGNORMAL_MIN_PROB=0.65
 export LOGNORMAL_SIGMA_MODE=realized
 export LOGNORMAL_SIGMA=0.80
 export LOGNORMAL_SIGMA_FLOOR=0.40
 export LOGNORMAL_STRICT=0
-# Keep flat×0.50 printer path; do not require hard venue agree (starves)
 export LOGNORMAL_REQUIRE_AGREE=0
 export MAX_CONCURRENT=3
 export MAX_EXPOSURE_FRAC=0.60
@@ -91,7 +90,7 @@ export SOFT_CORR_MAX=2
 export STAGE_SIZE=0
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.20
-# ALLOW flat at half size — counterfactual printer; pre-settle blocks the nuke
+# ALLOW flat at half size — the 2× engine; pre-settle blocks the nuke
 export SOFT_BN_FLAT_MULT=0.50
 export MAX_SIZE_MULT=1.20
 # Size tails (cost≥$15) were net negative — hard cap

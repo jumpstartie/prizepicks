@@ -61,17 +61,16 @@ Best win streak in book: **52** (AUG03). Peak recon HW ~**$215**. Today: TP/fade
 - Soft/mid+flat+settle PnL ≈ 0 (blocked)
 - Rolling 30-trade WR ≥ ~90% on core
 
-## 80%+ merge overlay (live)
+## 80%+ merge overlay (optional — OFF in printer replay)
 
-On top of RTP-20 exits / sizing / core series:
+Tried live; **starved fills** (model ~ATM while books 70–90¢). Module kept at
+`bot/lognormal_gate.py`. Toggle `LOGNORMAL_GATE=1` only for research.
 
-| Gate | Setting |
-|------|---------|
-| Confirm polls | **2** |
-| Time window | **secs_left ∈ [180, 780]** |
-| Lognormal digital | `P(side) ≥ 0.65` and `edge ≥ 0.03` |
-| σ | realized short-horizon lead vol → τ (ann floor 40%) |
-| Venue | disagree blocked; flat ×0.50 still allowed |
+## Printer replay (live default)
 
-Module: `bot/lognormal_gate.py` (driftless Φ(d2) vs `floor_strike` + lead spot).
-Skips log as `skip_lognormal`. Toggle via `LOGNORMAL_GATE=0` to revert to plain RTP-20.
+The pattern that hit **2×–8×** on this book:
+
+- Core BNB/XRP/BTC · flat ×0.50 · confirm=1 · min_left=25 · lognormal **OFF**
+- Exits: TP / fade / pre-settle (no soft settle ride)
+- Ticket ≤15% · **HALT_FLOOR=$20** · trail 0.65× flat HW
+- Counterfactual: core flat + TP/fade ≈ **+$199 @ 100% WR**; 52-win streak $20→$79
