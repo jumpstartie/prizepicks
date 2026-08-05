@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Strategy #3 — morning sprint pack (keep OG skeleton, fix today's bleed).
-# Diagnosis: every big morning loser was mid/soft + bn=flat held to settle
-# (ETH −$18, BTC −$21, SOL −$10, DOGE −$7). Soft BN gate only covered
-# <85¢ so 85–91¢ tickets skipped it. Kelly stuck on cut_neg_edge after
-# those losses. Sprint: extend BN gate, block flat softs, bank winners,
-# unstick size — governors / early-tip / metals stay OFF.
+# HOT STREAK — day-1 / day-2 printer, not the nuke stack.
+#
+# What actually made the money (from live book):
+#   soft/mid + take_profit  ≈ +$260
+#   soft/mid + settle       ≈ −$230  (the drain)
+# Best coins: XRP / BNB / BTC. SOL & metals & NEAR were net drains.
+# ETH printed day-1 then became the nuke magnet — satellite only.
+#
+# Playbook: press 70–90¢ favorites, BANK via TP/spike-fade, half-size
+# on bn=flat (don't block — flat+TP was the streak). No governors,
+# no early-tip, no metals. Tight ticket cap so one settle can't end the day.
 set -euo pipefail
 cd /workspace
 set -a
@@ -15,7 +20,6 @@ set +a
 export MODE=live
 export START_EQUITY=20
 export EDGE_SIZING=1
-# Unstick from cut_neg_edge: shorter lookback, clip nukes, stronger prior
 export RISK_FRACTION=0.20
 export RISK_FRAC_MIN=0.16
 export RISK_FRAC_MAX=0.28
@@ -23,60 +27,58 @@ export EDGE_KELLY_FRAC=0.40
 export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
-export EDGE_PRIOR_WR=0.92
-# Room under ~$65–72 book; no profit-halt
-export HALT_FLOOR=50
+export EDGE_PRIOR_WR=0.93
+# ~$72 book → room to trade; trail off so we don't self-halt mid-sprint
+export HALT_FLOOR=48
 export HALT_TRAIL_FRAC=0
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
-# Bank winners earlier — settle was the morning drain, TP/fade printed
-export TAKE_PROFIT_ABS=0.98
+# BANK winners — this is the whole edge vs riding to settle
+export TAKE_PROFIT_ABS=0.97
 export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
 export TAKE_PROFIT_MIN_ENTRY=0
-export SOFT_SPIKE_TP=0.96
+export SOFT_SPIKE_TP=0.95
 export SPIKE_FADE=1
-export SPIKE_PEAK=0.93
-export SPIKE_GIVEBACK=0.06
+export SPIKE_PEAK=0.92
+export SPIKE_GIVEBACK=0.05
 export SPIKE_MIN_GAIN=0.03
 export EQUITY_HARVEST=0
-# #3 band; skip skinny ≥95¢, press fatter mid books
+# Fat mid books; skip skinny ≥95¢
 export PRICE_LO=0.70
 export PRICE_HI=0.999
 export SKIP_ENTRY_RICH=0.95
-export MAX_SPREAD=0.20
+export MAX_SPREAD=0.18
 export WINDOW_SEC=840
-export MIN_SECS_LEFT=15
+export MIN_SECS_LEFT=20
 export CONFIRM_POLLS=1
 export POLL_SEC=1.25
-export MAX_CONCURRENT=6
-export MAX_EXPOSURE_FRAC=0.75
-# Core printers; SOL demoted (just ate −$10); BTC/DOGE/SOL satellites
-export SERIES=KXBNB15M,KXXRP15M,KXETH15M
-export SATELLITE_SERIES=KXBTC15M,KXDOGE15M,KXSOL15M
+export MAX_CONCURRENT=5
+export MAX_EXPOSURE_FRAC=0.70
+# Printers only. Drop SOL/NEAR/metals. ETH satellite after nukes.
+export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
+export SATELLITE_SERIES=KXDOGE15M,KXETH15M
 export SATELLITE_SIZE_MULT=0.5
 export METALS_SERIES=
 export METALS_SESSION=0
-# Governors OFF — hot stacks caused the nukes
 export SERIES_GOV=0
 export SETUP_GOV=0
-# Extend soft BN gate through mid favorites (was 0.85 → ETH/BTC nukes skipped it)
-export SOFT_ENTRY_MAX=0.92
+# Soft/mid through 90¢ — day-1 money band
+export SOFT_ENTRY_MAX=0.90
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
 export SOFT_ENTRY_EARLY_MULT=1.0
 export SOFT_CORR_MAX=3
-# Full size on BN-agreed softs — don't stage-cut the printers
 export STAGE_SIZE=0
 export SOFT_BINANCE_STRICT=1
 export SOFT_BN_AGREE_MULT=1.25
-# Block bn=flat soft/mid — every big morning loser
-export SOFT_BN_FLAT_MULT=0
-export MAX_SIZE_MULT=1.35
-# Hard ticket ceiling
-export TICKET_COST_CAP_FRAC=0.22
+# Half-size on flat (do NOT block — flat+TP printed the streak)
+export SOFT_BN_FLAT_MULT=0.50
+export MAX_SIZE_MULT=1.25
+# One bad settle ≤ ~20% of book
+export TICKET_COST_CAP_FRAC=0.20
 export LOSS_COOLDOWN_LOSSES=2
 export LOSS_COOLDOWN_SEC=300
 export LOSS_COOLDOWN_RISK_MULT=0.50
