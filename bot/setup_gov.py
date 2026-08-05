@@ -43,6 +43,12 @@ ICE_MULT = float(os.environ.get("SETUP_GOV_ICE_MULT", "0.35"))
 HOT_WR = float(os.environ.get("SETUP_GOV_HOT_WR", "0.90"))
 HOT_NET = float(os.environ.get("SETUP_GOV_HOT_NET", "4"))
 HOT_MULT = float(os.environ.get("SETUP_GOV_HOT_MULT", "1.20"))
+# Keys that must never receive HOT_MULT (TP-inflated flat sample nuked the book).
+NO_HOT_KEYS = {
+    k.strip()
+    for k in os.environ.get("SETUP_GOV_NO_HOT_KEYS", "lead_flat").split(",")
+    if k.strip()
+}
 
 MIN_MULT = float(os.environ.get("SETUP_GOV_MIN_MULT", "0.35"))
 MAX_MULT = float(os.environ.get("SETUP_GOV_MAX_MULT", "1.35"))
@@ -182,6 +188,8 @@ def _axis_mult(pnls: list[float], key: str) -> tuple[float, str]:
     if net <= COLD_NET or (losses >= 3 and net < 0):
         return COLD_MULT, f"setup_{key}:cold×{COLD_MULT:g}({wins}-{losses},net{net:+.1f})"
     if wr >= HOT_WR and net >= HOT_NET:
+        if key in NO_HOT_KEYS:
+            return 1.0, f"setup_{key}:hot_blocked({wins}-{losses},net{net:+.1f})"
         return HOT_MULT, f"setup_{key}:hot×{HOT_MULT:g}({wins}-{losses},net{net:+.1f})"
     return 1.0, ""
 
