@@ -184,12 +184,28 @@ PY
 }
 
 rm -f "$PAUSE_FLAG"
-log "watchdog up check=${CHECK_SEC}s stale=${STALE_SEC}s api_timeout=${API_TIMEOUT}s early=${EARLY_WATCH}"
+JUMP_SEC="${WATCHDOG_JUMP_SEC:-90}"
+log "watchdog up check=${CHECK_SEC}s stale=${STALE_SEC}s api_timeout=${API_TIMEOUT}s jump=${JUMP_SEC}s early=${EARLY_WATCH}"
 export HALT_FLOOR="${HALT_FLOOR:-60}"
 export HALT_TRAIL_FRAC="${HALT_TRAIL_FRAC:-0.65}"
+LAST_WALL=$(date +%s)
 
 while true; do
   touch_wd_hb
+  NOW=$(date +%s)
+  JUMP=$((NOW - LAST_WALL))
+  if [[ "$JUMP" -ge "$JUMP_SEC" ]]; then
+    # VM sleep / process freeze — PID can look "alive" with a fresh post-wake HB.
+    # Force a clean runner bounce so hung sockets / stuck polls die.
+    pid=$(exact_python "bot/runner.py" || true)
+    log "FREEZE RECOVERY wall_jump=${JUMP}s — force restart runner pid=${pid:-none}"
+    if [[ -n "${pid}" ]]; then
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 0.5
+      rm -f "$HB_FILE"
+    fi
+  fi
+  LAST_WALL=$NOW
 
   if [[ -f "$PAUSE_FLAG" ]]; then
     log "PAUSED — rm $PAUSE_FLAG to resume"

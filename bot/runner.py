@@ -1703,14 +1703,19 @@ def main():
                     if LEAD_FEED is not None:
                         log(LEAD_FEED.status_line())
                     last_summary = now
-                # Night-shift watchdog: prove the loop is alive (PID alone isn't enough —
-                # we once sat in do_poll for ~26m and missed a full 15m window).
+                # Heartbeat at end of successful iteration (watchdog kills if stale).
                 try:
-                    Path("bot/runner.heartbeat").write_text(f"{now:.3f}\n", encoding="utf-8")
+                    Path("bot/runner.heartbeat").write_text(f"{time.time():.3f}\n", encoding="utf-8")
                 except Exception:
                     pass
             except Exception as e:
                 log(f"loop error: {e}")
+                # Still pulse HB on errors so a transient exception doesn't look like a freeze;
+                # true hangs never reach here and get force-killed by watchdog/keep_alive.
+                try:
+                    Path("bot/runner.heartbeat").write_text(f"{time.time():.3f}\n", encoding="utf-8")
+                except Exception:
+                    pass
             time.sleep(POLL_SEC)
     finally:
         if LEAD_FEED is not None:
