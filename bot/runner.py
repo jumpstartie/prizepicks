@@ -1091,7 +1091,8 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
         return
     exit_px = mark
     label = {"stop": "STOP", "spike_fade": "SPIKE FADE",
-             "whale_harvest": "WHALE HARVEST"}.get(reason, "TAKE PROFIT")
+             "whale_harvest": "WHALE HARVEST",
+             "pre_settle": "PRE-SETTLE"}.get(reason, "TAKE PROFIT")
     if st.mode == "live":
         try:
             if p.side == "yes":
