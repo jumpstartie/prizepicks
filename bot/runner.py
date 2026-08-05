@@ -610,19 +610,26 @@ def soft_open_count(st: State, metal: bool | None = None) -> int:
     return n
 
 
+def _soft_bn_flat(detail: str) -> tuple[bool, float, str]:
+    """Apply SOFT_BN_FLAT_MULT; ≤0 means block (sprint: no bn=flat softs)."""
+    if SOFT_BN_FLAT_MULT <= 0:
+        return False, 0.0, f"bnflat_block:{detail}"
+    return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}"
+
+
 def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float, str]:
     """Soft favorites: fast-window Binance gate + asymmetric size.
 
     Returns (allow, size_mult, reason_tag).
       agree  → SOFT_BN_AGREE_MULT (default 1.25×)
-      flat   → SOFT_BN_FLAT_MULT (default 0.50×)
+      flat   → SOFT_BN_FLAT_MULT (default 0.50×; ≤0 blocks)
       disagree → block
     Also: BTC/ETH risk veto + taker-flow filter (inside lead feed).
     """
     if entry >= SOFT_ENTRY_MAX or not SOFT_BINANCE_STRICT:
         return True, 1.0, ""
     if not _lead_active() or LEAD_FEED is None:
-        return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}(no_lead)"
+        return _soft_bn_flat("no_lead")
     ok_rv, why_rv = LEAD_FEED.risk_veto(ticker, side)
     if not ok_rv:
         return False, 0.0, why_rv
@@ -640,7 +647,7 @@ def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float
     if not ok:
         return False, 0.0, f"{reason}:{detail}"
     if sig is None or sig.direction == "flat":
-        return True, SOFT_BN_FLAT_MULT, f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}"
+        return _soft_bn_flat(detail)
     # Binance leans our way — require multi-venue confirm for full size
     mv_status, agree_n, venue_n, mv_detail = LEAD_FEED.multi_venue_confirm(ticker, side)
     mv_tag = f"mv{agree_n}/{venue_n}[{mv_detail}]"
@@ -649,16 +656,12 @@ def soft_binance_gate(ticker: str, side: str, entry: float) -> tuple[bool, float
             f"bnagree×{SOFT_BN_AGREE_MULT:g}:{detail}+{mv_tag}"
         )
     if mv_status == "unavailable":
-        # Feeds still warming — allow half size, don't block
-        return True, SOFT_BN_FLAT_MULT, (
-            f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}+{mv_tag}"
-        )
+        # Feeds still warming — treat as flat (block when FLAT_MULT≤0)
+        return _soft_bn_flat(f"{detail}+{mv_tag}")
     # weak confirm
     if getattr(LEAD_FEED, "multi_venue_strict", False):
         return False, 0.0, f"multi_venue_weak:{detail}+{mv_tag}"
-    return True, SOFT_BN_FLAT_MULT, (
-        f"bnflat×{SOFT_BN_FLAT_MULT:g}:{detail}+{mv_tag}"
-    )
+    return _soft_bn_flat(f"{detail}+{mv_tag}")
 
 
 def cooldown_risk_mult() -> float:
