@@ -15,10 +15,26 @@
 #   • Governors / early-tip / metals / satellites OFF
 set -euo pipefail
 cd /workspace
-set -a
-# shellcheck disable=SC1091
-source secrets/env.sh
-set +a
+# Prefer secrets/env.sh (DO OR DIE layout); fall back to Cursor-injected env vars.
+if [[ -f secrets/env.sh ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source secrets/env.sh
+  set +a
+fi
+# Materialize PEM from KALSHI_PRIVATE_KEY if only the env form is present.
+if [[ -n "${KALSHI_PRIVATE_KEY:-}" && -z "${KALSHI_PRIVATE_KEY_PATH:-}" ]]; then
+  mkdir -p secrets
+  umask 077
+  # support literal \n from secret stores
+  printf '%s\n' "${KALSHI_PRIVATE_KEY//\\n/$'\n'}" > secrets/kalshi.key
+  chmod 600 secrets/kalshi.key
+  export KALSHI_PRIVATE_KEY_PATH=/workspace/secrets/kalshi.key
+fi
+if [[ -z "${KALSHI_API_KEY_ID:-}" || -z "${KALSHI_PRIVATE_KEY_PATH:-}${KALSHI_PRIVATE_KEY:-}" ]]; then
+  echo "FATAL: need KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY (or secrets/env.sh)" >&2
+  exit 1
+fi
 
 export MODE=live
 export START_EQUITY=20
@@ -36,8 +52,8 @@ export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0.65
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
-# Lock the book once flat cash clears $105 (writes bot/SAVE_BANKROLL.flag)
-export HALT_CASH_TARGET=105
+# Lock the book once flat cash clears $100 (writes bot/SAVE_BANKROLL.flag)
+export HALT_CASH_TARGET=100
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
 # BANK — the whole edge vs settle
