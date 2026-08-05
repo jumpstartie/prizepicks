@@ -1689,6 +1689,12 @@ def main():
                     if LEAD_FEED is not None:
                         log(LEAD_FEED.status_line())
                     last_summary = now
+                # Night-shift watchdog: prove the loop is alive (PID alone isn't enough —
+                # we once sat in do_poll for ~26m and missed a full 15m window).
+                try:
+                    Path("bot/runner.heartbeat").write_text(f"{now:.3f}\n", encoding="utf-8")
+                except Exception:
+                    pass
             except Exception as e:
                 log(f"loop error: {e}")
             time.sleep(POLL_SEC)

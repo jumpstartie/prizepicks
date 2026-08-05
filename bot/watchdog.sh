@@ -1,27 +1,30 @@
 #!/usr/bin/env bash
 # Night-shift watchdog: keep favorite-maker powering through.
-# - Respects bot/PAUSED.flag (no restarts while paused)
-# - Restarts dead PIDs every 10s
-# - Auto-unhalts when flat + cash above floor+buffer (halt was the overnight "break")
-# - Early-tip optional (EARLY_WATCH=0 by default overnight)
-# - Heartbeats cash/halt/open to bot/watchdog.log
+# - Respects bot/PAUSED.flag
+# - Restarts dead PIDs
+# - Kills+restarts STALE runners (alive PID but loop stuck — the real overnight break)
+# - Auto-unhalts when flat + cash above floor+buffer
+# - Early-tip optional (EARLY_WATCH=0 by default)
 set -u
 cd /workspace
 LOG=bot/watchdog.log
 PAUSE_FLAG=bot/PAUSED.flag
 STATE=bot/state_live.json
+HB_FILE=bot/runner.heartbeat
+RUNNER_LOG=bot/runner_live.log
 TMUX_CFG=/exec-daemon/tmux.portal.conf
 EARLY_WATCH="${EARLY_WATCH:-0}"
 OBSERVER_WATCH="${OBSERVER_WATCH:-1}"
 CHECK_SEC="${WATCHDOG_CHECK_SEC:-10}"
-UNHALT_BUFFER="${WATCHDOG_UNHALT_BUFFER:-3}"   # cash must clear floor by this
+STALE_SEC="${WATCHDOG_STALE_SEC:-90}"
+UNHALT_BUFFER="${WATCHDOG_UNHALT_BUFFER:-3}"
 mkdir -p bot
 
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
 exact_python() {
-  # $1 = script path fragment e.g. bot/runner.py
-  python3 - <<'PY' "$1"
+  local frag="$1"
+  python3 - <<'PY' "$frag"
 import os, sys
 frag = sys.argv[1]
 for pid in os.listdir("/proc"):
@@ -31,12 +34,57 @@ for pid in os.listdir("/proc"):
         parts = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
     except Exception:
         continue
-    if len(parts) >= 2 and parts[0].endswith(b"python3") and frag.encode() in b" ".join(parts):
-        # exact: python3 -u bot/runner.py
-        args = [p.decode() for p in parts if p]
-        if args[:3] == ["python3", "-u", frag] or (len(args) >= 2 and args[0].endswith("python3") and frag in args):
-            print(pid)
-            break
+    args = [p.decode() for p in parts if p]
+    if len(args) >= 3 and args[0].endswith("python3") and args[1] == "-u" and args[2] == frag:
+        print(pid)
+        break
+PY
+}
+
+kill_exact() {
+  local frag="$1"
+  local pid
+  pid=$(exact_python "$frag" || true)
+  if [[ -n "${pid}" ]]; then
+    log "KILL stale/dead $frag pid=$pid"
+    kill -9 "$pid" 2>/dev/null || true
+    sleep 0.5
+  fi
+}
+
+hb_age_sec() {
+  python3 - <<'PY' "$HB_FILE" "$RUNNER_LOG"
+import os, re, time, sys
+from pathlib import Path
+hb, logp = Path(sys.argv[1]), Path(sys.argv[2])
+now = time.time()
+# Prefer explicit heartbeat file (loop touch)
+if hb.exists():
+    try:
+        ts = float(hb.read_text().strip().split()[0])
+        print(int(max(0, now - ts)))
+        raise SystemExit
+    except Exception:
+        pass
+# Fallback: last timestamp in runner log
+if logp.exists():
+    try:
+        # read last 8KB
+        data = logp.read_bytes()[-8192:].decode(errors="ignore")
+        matches = list(re.finditer(r"\[(\d{2}):(\d{2}):(\d{2})\]", data))
+        if matches:
+            import datetime as dt
+            h, m, s = map(int, matches[-1].groups())
+            today = dt.datetime.now()
+            ts = today.replace(hour=h, minute=m, second=s, microsecond=0).timestamp()
+            # handle midnight wrap
+            if ts - now > 3600:
+                ts -= 86400
+            print(int(max(0, now - ts)))
+            raise SystemExit
+    except Exception:
+        pass
+print(99999)
 PY
 }
 
@@ -54,9 +102,9 @@ ensure_tmux() {
   if [[ -z "${pid}" ]]; then
     log "RESTART $name (no PID for $frag)"
     tmux -f "$TMUX_CFG" send-keys -t "$name" C-c
-    sleep 0.5
+    sleep 0.4
     tmux -f "$TMUX_CFG" send-keys -t "$name" "$cmd" C-m
-    sleep 1.5
+    sleep 2
     pid=$(exact_python "$frag" || true)
     if [[ -z "${pid}" ]]; then
       log "WARN $name still down after restart"
@@ -66,9 +114,21 @@ ensure_tmux() {
   fi
 }
 
+maybe_kill_stale_runner() {
+  local pid age
+  pid=$(exact_python "bot/runner.py" || true)
+  [[ -z "${pid}" ]] && return 0
+  age=$(hb_age_sec)
+  if [[ "$age" -ge "$STALE_SEC" ]]; then
+    log "STALE runner pid=$pid heartbeat_age=${age}s ≥ ${STALE_SEC}s — force restart"
+    kill -9 "$pid" 2>/dev/null || true
+    sleep 0.5
+    # clear stale heartbeat so we don't loop-kill a fresh boot before first touch
+    rm -f "$HB_FILE"
+  fi
+}
+
 maybe_unhalt() {
-  # If favorite-maker is halted but cash recovered above floor, clear halt so
-  # the night shift keeps trading instead of "settling only" forever.
   python3 - <<'PY' "$STATE" "$UNHALT_BUFFER"
 import json, os, sys
 from pathlib import Path
@@ -79,19 +139,17 @@ if not state_path.exists():
 st = json.loads(state_path.read_text())
 if not st.get("halted"):
     raise SystemExit(0)
-# floor from env if present else state/static
 floor = float(os.environ.get("HALT_FLOOR", "60"))
 hw = float(st.get("high_water") or 0)
 trail = float(os.environ.get("HALT_TRAIL_FRAC", "0.65"))
 eff = max(floor, trail * hw) if hw > 0 else floor
 cash = float(st.get("cash") or 0)
-# live balance preferred
 try:
     sys.path.insert(0, "/workspace")
     from bot.kalshi_client import KalshiClient
-    b = KalshiClient().balance()
-    cash = float(b.get("balance_dollars") or cash)
-    pos = [p for p in KalshiClient().get_positions()
+    c = KalshiClient()
+    cash = float(c.balance().get("balance_dollars") or cash)
+    pos = [p for p in c.get_positions()
            if abs(float(p.get("position_fp") or 0)) > 0 and "15M" in p.get("ticker", "")]
 except Exception:
     pos = ["?"]
@@ -100,7 +158,6 @@ if pos:
     raise SystemExit(0)
 if cash >= eff + buf:
     st["halted"] = False
-    # Re-anchor HW to cash so a stale ATH trail floor can't re-halt instantly
     if hw > cash * 1.15:
         st["high_water"] = cash
         print(f"UNHALT cash=${cash:.2f} floor=${eff:.2f} — cleared halt + reanchor HW ${hw:.2f}→${cash:.2f}")
@@ -119,44 +176,43 @@ from pathlib import Path
 try:
     sys.path.insert(0, "/workspace")
     from bot.kalshi_client import KalshiClient
-    b = KalshiClient().balance()
+    c = KalshiClient()
+    b = c.balance()
     cash = float(b.get("balance_dollars") or 0)
     pv = b.get("portfolio_value")
-    pos = [p for p in KalshiClient().get_positions()
+    pos = [p for p in c.get_positions()
            if abs(float(p.get("position_fp") or 0)) > 0 and "15M" in p.get("ticker", "")]
+    err = None
 except Exception as e:
     cash = -1; pv = "?"; pos = []; err = e
-else:
-    err = None
 st = {}
 p = Path(sys.argv[1])
 if p.exists():
     st = json.loads(p.read_text())
-print(f"HB cash=${cash:.2f} pv={pv} open={len(pos)} halted={st.get('halted')} hw={st.get('high_water')}"
-      + (f" err={err}" if err else ""))
+msg = f"HB cash=${cash:.2f} pv={pv} open={len(pos)} halted={st.get('halted')} hw={st.get('high_water')}"
+if err:
+    msg += f" err={err}"
+print(msg)
 PY
 }
 
-log "watchdog up check=${CHECK_SEC}s early=${EARLY_WATCH} observer=${OBSERVER_WATCH} pause_flag=$PAUSE_FLAG"
-# Export floor knobs for unhalt helper (match start_live.sh)
+log "watchdog up check=${CHECK_SEC}s stale=${STALE_SEC}s early=${EARLY_WATCH} observer=${OBSERVER_WATCH}"
 export HALT_FLOOR="${HALT_FLOOR:-60}"
 export HALT_TRAIL_FRAC="${HALT_TRAIL_FRAC:-0.65}"
 
 while true; do
   if [[ -f "$PAUSE_FLAG" ]]; then
     log "PAUSED — not restarting (rm $PAUSE_FLAG to resume)"
-    heartbeat || true
+    log "$(heartbeat || true)"
     sleep "$CHECK_SEC"
     continue
   fi
 
-  # Unhalt before ensuring process so a live runner can trade again
   out=$(maybe_unhalt 2>&1 || true)
   [[ -n "$out" ]] && log "$out"
 
-  ensure_tmux kalshi-live \
-    'bash bot/start_live.sh' \
-    'bot/runner.py'
+  maybe_kill_stale_runner
+  ensure_tmux kalshi-live 'bash bot/start_live.sh' 'bot/runner.py'
 
   if [[ "$EARLY_WATCH" == "1" ]]; then
     ensure_tmux kalshi-early \
@@ -170,6 +226,7 @@ while true; do
       'bot/early_tip_observer.py'
   fi
 
-  heartbeat || true
+  age=$(hb_age_sec)
+  log "$(heartbeat || true) runner_hb_age=${age}s"
   sleep "$CHECK_SEC"
 done
