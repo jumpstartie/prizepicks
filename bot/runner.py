@@ -30,6 +30,7 @@ from bot.kalshi_client import KalshiClient
 from bot import metals, series_gov, setup_gov, time_phase
 from bot import sizing
 from bot.binance_lead import BinanceLeadFeed, lean_enabled, lean_mode, symbol_for
+from bot import lognormal_gate
 
 # Profit-first defaults from live + 31d research: core favorites only, hold to settle.
 # (HYPE/ZEC stops were the only live losses; BTC/DOGE/ETH were flat in backtest.)
@@ -62,6 +63,8 @@ STOP_DISABLE_SECS = int(os.environ.get("STOP_DISABLE_SECS", "60"))
 WINDOW_SEC = int(os.environ.get("WINDOW_SEC", "840"))
 # Require at least this much time left to enter
 MIN_SECS_LEFT = int(os.environ.get("MIN_SECS_LEFT", "15"))
+# Optional upper bound on secs left (0 = off). 80%+ merge uses ~780 (~13m).
+MAX_SECS_LEFT = int(os.environ.get("MAX_SECS_LEFT", "0"))
 # Require the favorite band on the same side for this many consecutive polls
 CONFIRM_POLLS = int(os.environ.get("CONFIRM_POLLS", "1"))
 # Requotes after a post-only-cross rejection
@@ -752,6 +755,12 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         append_trade_log({"event": "skip_soft_binance", "ticker": ticker,
                           "side": side, "entry": entry, "reason": why_bn})
         return
+    ok_agree, why_agree = lognormal_gate.require_agree_ok(why_bn)
+    if not ok_agree:
+        log(f"skip {ticker}: lognormal require-agree ({why_agree})")
+        append_trade_log({"event": "skip_lognormal", "ticker": ticker,
+                          "side": side, "entry": entry, "reason": why_agree})
+        return
 
     try:
         last_at = float(m["last_price_dollars"]) if m.get("last_price_dollars") is not None else None
@@ -759,6 +768,37 @@ def try_open(client: KalshiClient, st: State, m: dict, side: str, entry: float):
         last_at = None
     close_ts = parse_ts(m["close_time"])
     secs_left = close_ts - time.time()
+    if MAX_SECS_LEFT > 0 and secs_left > MAX_SECS_LEFT:
+        log(f"skip {ticker}: too early ({secs_left:.0f}s>{MAX_SECS_LEFT}s)")
+        append_trade_log({"event": "skip_max_secs", "ticker": ticker,
+                          "side": side, "entry": entry, "secs_left": secs_left,
+                          "max_secs_left": MAX_SECS_LEFT})
+        return
+    # Lognormal digital model: favorites the BS/lognormal also likes
+    if lognormal_gate.LOGNORMAL_GATE:
+        sig_ln = None
+        spot = 0.0
+        if LEAD_FEED is not None:
+            sig_ln = LEAD_FEED.signal(ticker)
+            if sig_ln is not None and sig_ln.price > 0:
+                spot = float(sig_ln.price)
+        ok_ln, why_ln, det_ln = lognormal_gate.evaluate(
+            m, side, entry, secs_left, spot, sig_ln,
+        )
+        if not ok_ln:
+            log(f"skip {ticker}: lognormal gate ({why_ln})")
+            append_trade_log({
+                "event": "skip_lognormal", "ticker": ticker, "side": side,
+                "entry": entry, "reason": why_ln, **{
+                    k: det_ln[k] for k in (
+                        "model_prob", "edge", "p_yes", "spot", "strike",
+                        "sigma_tau", "sigma_tag", "secs_left",
+                    ) if k in det_ln
+                },
+            })
+            return
+        else:
+            log(f"lognormal ok {ticker}: {why_ln}")
     phase = time_phase.phase_label(secs_left)
     prior_dir = (st.last_settle_dir or {}).get(series_root(ticker))
     blocked, why_late = time_phase.late_rich_blocked(entry, secs_left)
@@ -1575,7 +1615,10 @@ def main():
         f"{sizing.describe(bank, floor=HALT_FLOOR, closed=st.closed)}")
     log(f"series={ALL_SERIES}  satellites={sorted(SATELLITE_SERIES)}×{SATELLITE_SIZE_MULT}  "
         f"window={WINDOW_SEC}s  min_left={MIN_SECS_LEFT}s  "
+        f"max_left={MAX_SECS_LEFT or 'off'}s  "
         f"confirm={CONFIRM_POLLS}  max_concurrent={MAX_CONCURRENT}  "
+        f"lognormal={'ON' if lognormal_gate.LOGNORMAL_GATE else 'OFF'}"
+        f"(p≥{lognormal_gate.LOGNORMAL_MIN_PROB:g}/e≥{lognormal_gate.LOGNORMAL_MIN_EDGE:g})  "
         f"exposure≤{100*MAX_EXPOSURE_FRAC:.0f}%  price=[{PRICE_LO},{PRICE_HI})  "
         f"stop_loss={'OFF' if STOP_LOSS_PCT <= 0 else f'{100*STOP_LOSS_PCT:.0f}% (off last {STOP_DISABLE_SECS}s)'}  "
         f"take_profit="
@@ -1663,6 +1706,9 @@ def main():
                             pending.pop(ticker, None)
                             continue
                         if secs_left < MIN_SECS_LEFT:
+                            pending.pop(ticker, None)
+                            continue
+                        if MAX_SECS_LEFT > 0 and secs_left > MAX_SECS_LEFT:
                             pending.pop(ticker, None)
                             continue
 

@@ -60,3 +60,18 @@ Best win streak in book: **52** (AUG03). Peak recon HW ~**$215**. Today: TP/fade
 - No single loss &gt; 15% of book
 - Soft/mid+flat+settle PnL ≈ 0 (blocked)
 - Rolling 30-trade WR ≥ ~90% on core
+
+## 80%+ merge overlay (live)
+
+On top of RTP-20 exits / sizing / core series:
+
+| Gate | Setting |
+|------|---------|
+| Confirm polls | **2** |
+| Time window | **secs_left ∈ [180, 780]** |
+| Lognormal digital | `P(side) ≥ 0.65` and `edge ≥ 0.03` |
+| σ | realized short-horizon lead vol → τ (ann floor 40%) |
+| Venue | disagree blocked; flat ×0.50 still allowed |
+
+Module: `bot/lognormal_gate.py` (driftless Φ(d2) vs `floor_strike` + lead spot).
+Skips log as `skip_lognormal`. Toggle via `LOGNORMAL_GATE=0` to revert to plain RTP-20.

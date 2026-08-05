@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RTP-20 — Ratchet TP Printer (counter-strategy to get back toward 20-0).
+# RTP-20 + 80% merge — printer exits + lognormal/venue/time gates.
 #
 # EVIDENCE (live book):
 #   core flat + TP/fade     → +$183 @ 100% WR   (THE printer)
@@ -8,11 +8,11 @@
 #   agree-only (no flat)    → only 19 trades   (starves streak)
 #   setup_gov / ETH / SOL / metals → expectancy killers
 #
-# COUNTER = day-1 printer ENTRY + forced bank EXIT + light ratchet lock-in.
-#   • Allow bn=flat soft/mid (half size) — that IS the 20-0 engine
-#   • Never ride them to binary settle (TP / fade / pre-settle flatten)
-#   • Core BNB/XRP/BTC only · 15% ticket cap · trail floor locks climbs
-#   • Governors / early-tip / metals OFF
+# MERGE (80%+ WR intent):
+#   • Keep RTP-20 exits (TP / fade / pre-settle) + core + 15% ticket
+#   • Lognormal digital gate: model_prob≥0.65 & edge≥0.03
+#   • Confirm≥2 · secs_left ∈ [180,780] · favorites that model also likes
+#   • Flat still allowed at ×0.50 (printer fuel); disagree still blocked
 set -euo pipefail
 cd /workspace
 set -a
@@ -58,9 +58,21 @@ export PRICE_HI=0.999
 export SKIP_ENTRY_RICH=0.95
 export MAX_SPREAD=0.18
 export WINDOW_SEC=840
-export MIN_SECS_LEFT=25
-export CONFIRM_POLLS=1
+# 80% merge: mid-window favorites only (3–13m left)
+export MIN_SECS_LEFT=180
+export MAX_SECS_LEFT=780
+export CONFIRM_POLLS=2
 export POLL_SEC=1.25
+# Driftless lognormal digital — favorites the model also likes
+export LOGNORMAL_GATE=1
+export LOGNORMAL_MIN_EDGE=0.03
+export LOGNORMAL_MIN_PROB=0.65
+export LOGNORMAL_SIGMA_MODE=realized
+export LOGNORMAL_SIGMA=0.80
+export LOGNORMAL_SIGMA_FLOOR=0.40
+export LOGNORMAL_STRICT=0
+# Keep flat×0.50 printer path; do not require hard venue agree (starves)
+export LOGNORMAL_REQUIRE_AGREE=0
 export MAX_CONCURRENT=3
 export MAX_EXPOSURE_FRAC=0.60
 export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
