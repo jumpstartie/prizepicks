@@ -51,8 +51,23 @@ start_watchdog() {
   log "started watchdog"
 }
 
+start_external_monitor() {
+  if ! tmux -f "$TMUX_CFG" has-session -t '=kalshi-extmon' 2>/dev/null; then
+    tmux -f "$TMUX_CFG" new-session -d -s kalshi-extmon -c /workspace -- "${SHELL:-bash}" -l
+    sleep 0.3
+  fi
+  if ! pgrep -f 'python3 -u bot/external_monitor.py' >/dev/null 2>&1; then
+    log "RESTART external monitor"
+    tmux -f "$TMUX_CFG" send-keys -t kalshi-extmon C-c 2>/dev/null || true
+    sleep 0.3
+    tmux -f "$TMUX_CFG" send-keys -t kalshi-extmon \
+      'bash bot/start_external_monitor.sh 2>&1 | tee -a bot/external_monitor.log' C-m
+  fi
+}
+
 log "keep_alive up check=${CHECK_SEC}s wd_stale=${WD_STALE_SEC}s"
 start_watchdog
+start_external_monitor
 
 while true; do
   rm -f bot/PAUSED.flag
@@ -71,5 +86,6 @@ while true; do
     sleep 0.3
     tmux -f "$TMUX_CFG" send-keys -t kalshi-live 'bash bot/start_live.sh' C-m
   fi
+  start_external_monitor
   sleep "$CHECK_SEC"
 done
