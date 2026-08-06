@@ -497,8 +497,16 @@ def update_high_water(st: State) -> None:
         st.high_water = st.cash
 
 
+# Master switch — when on, never freeze entries for floor/profit/cash targets.
+HALT_DISABLED = os.environ.get("HALT_DISABLED", "0").lower() in (
+    "1", "true", "yes", "on",
+)
+
+
 def halt_reason(st: State) -> str | None:
     """Return why we should halt, or None if still trading."""
+    if HALT_DISABLED:
+        return None
     # Prefer locking realized cash (not marked equity with opens).
     if HALT_CASH_TARGET > 0 and st.cash + 1e-9 >= HALT_CASH_TARGET:
         return "cash_target"
@@ -518,6 +526,14 @@ HALT_CONFIRM_POLLS = int(os.environ.get("HALT_CONFIRM_POLLS", "2"))
 def enforce_halt(client: KalshiClient, st: State) -> bool:
     """If loss floor or profit target hit, cancel resting orders and freeze entries."""
     global _HALT_BREACHES
+    if HALT_DISABLED:
+        if st.halted or st.halt_reason:
+            st.halted = False
+            st.halt_reason = ""
+            st.save()
+            log("HALT_DISABLED — cleared prior halt; entries stay open")
+        _HALT_BREACHES = 0
+        return False
     if st.halted:
         return True
     why = halt_reason(st)

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# DAY-1 printer — overnight grind (the 52-win / 2×–8× pattern).
+# DAY-1 printer — NO-STOP overnight grind.
 #
 # EVIDENCE (live book):
 #   core flat + TP/fade     → +$199 @ 100% WR   (THE printer)
 #   $20 → $79 in 52-win streak; peak ~$161 (~8×)
 #   soft/mid + flat + settle → −$263            (THE nuke)
 #
-# OVERNIGHT DAY-1:
+# NO-STOP DAY-1 (operator request):
 #   • Core BNB/XRP/BTC · 70–94¢ · bn=flat ×0.50 · confirm=1
 #   • Bank: TP 97¢ / soft spike / fade / pre-settle @60s
-#   • Ticket ≤15% · $20 hard floor · trail reanchored on deploy
-#   • No $105 cash-save (run through the night)
+#   • Ticket ≤15% · ALL entry halts OFF (floor/trail/cash/profit)
+#   • Keep trading until bankroll is gone or keeps compounding
 #   • Lognormal / satellites / metals / gov OFF
 set -euo pipefail
 cd /workspace
@@ -19,8 +19,7 @@ set -a
 source secrets/env.sh
 set +a
 
-# Clear trail-halt leftover + reanchor HW to live cash so overnight isn't
-# immediately floored by yesterday's $99 high-water.
+# Always clear any prior halt lock on deploy
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -29,18 +28,12 @@ if not p.exists():
     raise SystemExit(0)
 st = json.loads(p.read_text())
 cash = float(st.get("cash") or 0)
-changed = False
-if st.get("halted") or st.get("halt_reason"):
-    st["halted"] = False
-    st["halt_reason"] = ""
-    changed = True
-hw = float(st.get("high_water") or 0)
-if cash > 0 and (hw <= 0 or hw > cash * 1.02):
+st["halted"] = False
+st["halt_reason"] = ""
+if cash > 0:
     st["high_water"] = cash
-    changed = True
-if changed:
-    p.write_text(json.dumps(st, indent=2))
-    print(f"day1 deploy: unhalt + HW→${st['high_water']:.2f} (cash=${cash:.2f})")
+p.write_text(json.dumps(st, indent=2))
+print(f"no-stop deploy: unhalt + HW→${st['high_water']:.2f} (cash=${cash:.2f})")
 PY
 
 export MODE=live
@@ -54,12 +47,13 @@ export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
 export EDGE_PRIOR_WR=0.93
-# Hard stop $20; trail locks climbs once HW rises again from this reanchor
-export HALT_FLOOR=20
-export HALT_TRAIL_FRAC=0.65
-export HALT_LOSS_BUFFER=1
+# NO STOPS — do not freeze entries for floor / trail / cash / profit
+export HALT_DISABLED=1
+export HALT_FLOOR=0
+export HALT_TRAIL_FRAC=0
+export HALT_EQUITY_FRAC=0
+export HALT_LOSS_BUFFER=0
 export HALT_PROFIT=0
-# Overnight — do not auto-stop at $105
 export HALT_CASH_TARGET=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0

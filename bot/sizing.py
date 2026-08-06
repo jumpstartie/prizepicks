@@ -33,8 +33,9 @@ EDGE_PNL_CLIP = float(os.environ.get("EDGE_PNL_CLIP", "0"))  # 0 = off
 HALT_LOSS_BUFFER = int(os.environ.get("HALT_LOSS_BUFFER", "1"))
 MAX_EXPOSURE_FRAC = 0.60
 MAX_CONCURRENT = 7
-HALT_EQUITY_FRAC = 0.50
-HALT_FLOOR_DOLLARS = 70.0
+# 0 = disable fractional bankroll halt (absolute floor still applies if > 0)
+HALT_EQUITY_FRAC = float(os.environ.get("HALT_EQUITY_FRAC", "0.50"))
+HALT_FLOOR_DOLLARS = float(os.environ.get("HALT_FLOOR", "70.0"))
 MIN_CONTRACTS = 0.01
 CONTRACT_STEP = 0.01
 
@@ -226,10 +227,16 @@ def max_concurrent(equity: float, entry: float = AVG_ENTRY,
 
 def should_halt(equity: float, start_equity: float,
                 floor: float | None = None) -> bool:
-    """Halt on fractional drawdown or absolute dollar floor (whichever is higher)."""
-    frac_floor = start_equity * HALT_EQUITY_FRAC
+    """Halt on fractional drawdown or absolute dollar floor (whichever is higher).
+
+    Disabled entirely when both floors are ≤ 0 (no-stop grind mode).
+    """
+    frac_floor = (start_equity * HALT_EQUITY_FRAC) if HALT_EQUITY_FRAC > 0 else 0.0
     abs_floor = HALT_FLOOR_DOLLARS if floor is None else floor
-    return equity <= max(frac_floor, abs_floor)
+    halt_at = max(frac_floor, abs_floor)
+    if halt_at <= 0:
+        return False
+    return equity <= halt_at
 
 
 def should_halt_profit(equity: float, start_equity: float,
