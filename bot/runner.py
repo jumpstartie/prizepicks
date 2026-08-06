@@ -505,11 +505,11 @@ HALT_DISABLED = os.environ.get("HALT_DISABLED", "0").lower() in (
 
 def halt_reason(st: State) -> str | None:
     """Return why we should halt, or None if still trading."""
-    if HALT_DISABLED:
-        return None
-    # Prefer locking realized cash (not marked equity with opens).
+    # Cash-save always wins (sprint lock) even when loss floors are disabled.
     if HALT_CASH_TARGET > 0 and st.cash + 1e-9 >= HALT_CASH_TARGET:
         return "cash_target"
+    if HALT_DISABLED:
+        return None
     if sizing.should_halt(st.equity, st.start_equity, floor=effective_floor(st)):
         return "loss_floor"
     if sizing.should_halt_profit(st.equity, st.start_equity, HALT_PROFIT):
@@ -526,17 +526,18 @@ HALT_CONFIRM_POLLS = int(os.environ.get("HALT_CONFIRM_POLLS", "2"))
 def enforce_halt(client: KalshiClient, st: State) -> bool:
     """If loss floor or profit target hit, cancel resting orders and freeze entries."""
     global _HALT_BREACHES
-    if HALT_DISABLED:
-        if st.halted or st.halt_reason:
+    why = halt_reason(st)
+    if HALT_DISABLED and why is None:
+        # Clear stale loss-floor locks, but never wipe an active cash-save halt.
+        if st.halted and st.halt_reason in ("", "loss_floor"):
             st.halted = False
             st.halt_reason = ""
             st.save()
-            log("HALT_DISABLED — cleared prior halt; entries stay open")
+            log("HALT_DISABLED — cleared loss-floor halt; entries stay open")
         _HALT_BREACHES = 0
-        return False
+        return bool(st.halted)
     if st.halted:
         return True
-    why = halt_reason(st)
     if why is None:
         _HALT_BREACHES = 0
         return False
@@ -1668,8 +1669,8 @@ def main():
         f"{'' if TAKE_PROFIT_MIN_ENTRY<=0 else f', tp≥entry{TAKE_PROFIT_MIN_ENTRY:.2f}'}"
         f"{f', soft_spike≥{SOFT_SPIKE_TP:.2f}' if SOFT_SPIKE_TP>0 else ''}"
         f"{f', fade@{SPIKE_PEAK:.2f}-{SPIKE_GIVEBACK:.2f}' if SPIKE_FADE else ''})  "
-        f"halt_floor=${HALT_FLOOR:.2f}"
-        f"{f'+trail{HALT_TRAIL_FRAC:g}×HW' if HALT_TRAIL_FRAC > 0 else ''}  "
+        f"halt={'DISABLED-no-stop' if HALT_DISABLED else f'floor=${HALT_FLOOR:.2f}'}"
+        f"{'' if HALT_DISABLED or HALT_TRAIL_FRAC <= 0 else f'+trail{HALT_TRAIL_FRAC:g}×HW'}  "
         f"halt_profit={'OFF' if HALT_PROFIT <= 0 else f'+${HALT_PROFIT:.2f}'}  "
         f"cash_target={'OFF' if HALT_CASH_TARGET <= 0 else f'${HALT_CASH_TARGET:.2f}'}  "
         f"soft_entry=<{SOFT_ENTRY_MAX:g}×{SOFT_ENTRY_SIZE_MULT:g}"
@@ -1686,7 +1687,9 @@ def main():
         f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
         f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
-    if st.halted:
+    if HALT_DISABLED:
+        log("NO-STOP mode: entry halts disabled — trade until flat broke or operator kills")
+    elif st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
     elif HALT_CASH_TARGET > 0:
         log(f"cash save armed: halt & SAVE_BANKROLL when flat cash >= "
