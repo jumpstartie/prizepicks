@@ -66,11 +66,12 @@ Best win streak in book: **52** (AUG03). Peak recon HW ~**$215**. Today: TP/fade
 Tried live; **starved fills** (model ~ATM while books 70–90¢). Module kept at
 `bot/lognormal_gate.py`. Toggle `LOGNORMAL_GATE=1` only for research.
 
-## Printer replay (live default)
+## Printer replay / DAY-1 overnight (live default)
 
 The pattern that hit **2×–8×** on this book:
 
 - Core BNB/XRP/BTC · flat ×0.50 · confirm=1 · min_left=25 · lognormal **OFF**
 - Exits: TP / fade / pre-settle (no soft settle ride)
-- Ticket ≤15% · **HALT_FLOOR=$20** · trail 0.65× flat HW
+- Ticket ≤15% · **HALT_FLOOR=$20** · trail 0.65× flat HW (HW reanchored to cash on deploy)
+- Overnight: `HALT_CASH_TARGET=0` (no early $105 lock)
 - Counterfactual: core flat + TP/fade ≈ **+$199 @ 100% WR**; 52-win streak $20→$79

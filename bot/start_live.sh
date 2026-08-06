@@ -1,24 +1,47 @@
 #!/usr/bin/env bash
-# RTP-20 printer replay — the pattern that 2×–8×’d the live book.
+# DAY-1 printer — overnight grind (the 52-win / 2×–8× pattern).
 #
 # EVIDENCE (live book):
 #   core flat + TP/fade     → +$199 @ 100% WR   (THE printer)
 #   $20 → $79 in 52-win streak; peak ~$161 (~8×)
 #   soft/mid + flat + settle → −$263            (THE nuke)
-#   lognormal 0.65/0.03 merge → 0 fills (starved)
 #
-# REPLAY:
-#   • Core BNB/XRP/BTC · 70–94¢ · bn=flat ×0.50 allowed
+# OVERNIGHT DAY-1:
+#   • Core BNB/XRP/BTC · 70–94¢ · bn=flat ×0.50 · confirm=1
 #   • Bank: TP 97¢ / soft spike / fade / pre-settle @60s
-#   • Ticket ≤15% · concurrent 3 · $20 floor stop
-#   • Lognormal OFF · confirm=1 · full window (frequency)
-#   • Governors / early-tip / metals / satellites OFF
+#   • Ticket ≤15% · $20 hard floor · trail reanchored on deploy
+#   • No $105 cash-save (run through the night)
+#   • Lognormal / satellites / metals / gov OFF
 set -euo pipefail
 cd /workspace
 set -a
 # shellcheck disable=SC1091
 source secrets/env.sh
 set +a
+
+# Clear trail-halt leftover + reanchor HW to live cash so overnight isn't
+# immediately floored by yesterday's $99 high-water.
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("bot/state_live.json")
+if not p.exists():
+    raise SystemExit(0)
+st = json.loads(p.read_text())
+cash = float(st.get("cash") or 0)
+changed = False
+if st.get("halted") or st.get("halt_reason"):
+    st["halted"] = False
+    st["halt_reason"] = ""
+    changed = True
+hw = float(st.get("high_water") or 0)
+if cash > 0 and (hw <= 0 or hw > cash * 1.02):
+    st["high_water"] = cash
+    changed = True
+if changed:
+    p.write_text(json.dumps(st, indent=2))
+    print(f"day1 deploy: unhalt + HW→${st['high_water']:.2f} (cash=${cash:.2f})")
+PY
 
 export MODE=live
 export START_EQUITY=20
@@ -31,15 +54,16 @@ export EDGE_LOOKBACK=12
 export EDGE_PNL_CLIP=12
 export EDGE_PRIOR_STRENGTH=20
 export EDGE_PRIOR_WR=0.93
-# User risk box: hard stop at $20; trail locks climbs on flat cash
+# Hard stop $20; trail locks climbs once HW rises again from this reanchor
 export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0.65
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
-# Lock the book once flat cash clears $105 (writes bot/SAVE_BANKROLL.flag)
-export HALT_CASH_TARGET=105
+# Overnight — do not auto-stop at $105
+export HALT_CASH_TARGET=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
+rm -f bot/SAVE_BANKROLL.flag bot/PAUSED.flag bot/profit_target_hit.flag
 # BANK — the whole edge vs settle
 export TAKE_PROFIT_ABS=0.97
 export TAKE_PROFIT_MULT=0
