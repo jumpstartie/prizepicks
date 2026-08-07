@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# DAY-1 printer SPRINT → $100 by morning.
+# Strategy #3 — OG day-1 printer (restored for today).
 #
-# BEST EVIDENCE PATH (this book):
-#   core flat + TP/fade/pre-settle → +$199 @ 100% WR / 52-win streak / ~8× peak
-#   settle rides + satellites + lognormal = expectancy killers
+# What printed the $44+ / ~20–0 / 52-streak day-1 path:
+#   70¢+ favorites, 14m window, TP into 99¢,
+#   BNB/SOL/XRP/ETH core + BTC/DOGE satellites, Binance lead filter,
+#   soft favorites FULL size, BN flat half-size (not zero).
 #
-# SPRINT:
-#   • Same day-1 printer entries/exits (BNB/XRP/BTC, flat×0.50, TP bank)
-#   • No loss-floor / trail stops (keep grinding)
-#   • Lock & SAVE when flat cash ≥ $100
-#   • Slightly higher soft-corr + risk floor so overnight size doesn't collapse
+# Complexity that nuked the book later stays OFF:
+#   setup_gov hot stacks, metals, early-tip FORCE, lognormal gate,
+#   pre-settle / spike-fade overlays, cash-sprint save locks.
+# Ticket cost cap kept as the one hard lesson.
 set -euo pipefail
 cd /workspace
 set -a
@@ -17,7 +17,7 @@ set -a
 source secrets/env.sh
 set +a
 
-# Clear loss-floor locks only (keep cash-save if already hit)
+# Unhalt + reanchor HW for today's #3 leg (no cash-save lock)
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -26,96 +26,94 @@ if not p.exists():
     raise SystemExit(0)
 st = json.loads(p.read_text())
 cash = float(st.get("cash") or 0)
-reason = str(st.get("halt_reason") or "")
-if st.get("halted") and reason != "cash_target":
+eq = float(st.get("equity") or cash)
+changed = False
+if st.get("halted"):
     st["halted"] = False
     st["halt_reason"] = ""
+    changed = True
+# Reanchor high-water so an old peak can't trail-lock mid-leg
+hw = float(st.get("high_water") or 0)
+if hw > eq + 1e-9:
+    st["high_water"] = eq
+    changed = True
+    print(f"og3 deploy: reanchor HW ${hw:.2f} -> ${eq:.2f}")
+if changed:
     p.write_text(json.dumps(st, indent=2))
-    print(f"sprint deploy: unhalt (cash=${cash:.2f})")
-elif reason == "cash_target":
-    print(f"sprint deploy: cash-save already locked (cash=${cash:.2f})")
-else:
-    print(f"sprint deploy: trading (cash=${cash:.2f})")
+print(f"og3 deploy: trading (cash=${cash:.2f} equity=${eq:.2f})")
 PY
+rm -f bot/PAUSED.flag bot/SAVE_BANKROLL.flag bot/profit_target_hit.flag
 
 export MODE=live
 export START_EQUITY=20
 export EDGE_SIZING=1
-export RISK_FRACTION=0.20
-export RISK_FRAC_MIN=0.18
-export RISK_FRAC_MAX=0.24
-export EDGE_KELLY_FRAC=0.35
-export EDGE_LOOKBACK=12
-export EDGE_PNL_CLIP=12
-export EDGE_PRIOR_STRENGTH=20
-export EDGE_PRIOR_WR=0.93
-# No loss stops — grind; lock only at the $100 goal
-export HALT_DISABLED=1
-export HALT_FLOOR=0
+export RISK_FRACTION=0.18
+export RISK_FRAC_MIN=0.13
+export RISK_FRAC_MAX=0.25
+export EDGE_KELLY_FRAC=0.33
+export EDGE_LOOKBACK=30
+export EDGE_PNL_CLIP=25
+# Floor under today's ~$40 book (OG used $55 under ~$81); no trail / cash sprint
+export HALT_DISABLED=0
+export HALT_FLOOR=25
 export HALT_TRAIL_FRAC=0
 export HALT_EQUITY_FRAC=0
-export HALT_LOSS_BUFFER=0
+export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
-export HALT_CASH_TARGET=100
+export HALT_CASH_TARGET=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
-rm -f bot/PAUSED.flag bot/profit_target_hit.flag
-# BANK — the whole edge vs settle
-export TAKE_PROFIT_ABS=0.97
+# OG overlays OFF — pure #3 exits
+export LOGNORMAL_GATE=0
+export PRE_SETTLE_EXIT_SECS=0
+# OG printer: ride / TP into 99¢
+export TAKE_PROFIT_ABS=0.99
 export TAKE_PROFIT_MULT=0
 export TAKE_PROFIT_CAP=0.99
 export TAKE_PROFIT_MIN_ENTRY=0
-export SOFT_SPIKE_TP=0.95
-export SPIKE_FADE=1
-export SPIKE_PEAK=0.92
-export SPIKE_GIVEBACK=0.05
-export SPIKE_MIN_GAIN=0.03
-# Never binary-settle the soft/mid band
-export PRE_SETTLE_EXIT_SECS=60
-export PRE_SETTLE_MAX_ENTRY=0.95
+export SOFT_SPIKE_TP=0.97
+export SPIKE_FADE=0
 export EQUITY_HARVEST=0
-# Fat 70–94¢ books; skip skinny ≥95¢
+# Strategy #3 band
 export PRICE_LO=0.70
 export PRICE_HI=0.999
-export SKIP_ENTRY_RICH=0.95
-export MAX_SPREAD=0.18
+export SKIP_ENTRY_RICH=0.97
+export MAX_SPREAD=0.20
 export WINDOW_SEC=840
-export MIN_SECS_LEFT=25
+export MIN_SECS_LEFT=15
 export MAX_SECS_LEFT=0
 export CONFIRM_POLLS=1
-export POLL_SEC=1.25
-export LOGNORMAL_GATE=0
-export LOGNORMAL_MIN_EDGE=0.03
-export LOGNORMAL_MIN_PROB=0.65
-export LOGNORMAL_SIGMA_MODE=realized
-export LOGNORMAL_SIGMA=0.80
-export LOGNORMAL_SIGMA_FLOOR=0.40
-export LOGNORMAL_STRICT=0
-export LOGNORMAL_REQUIRE_AGREE=0
-export MAX_CONCURRENT=3
-export MAX_EXPOSURE_FRAC=0.60
-export SERIES=KXBNB15M,KXXRP15M,KXBTC15M
-export SATELLITE_SERIES=
+export POLL_SEC=1.5
+export MAX_CONCURRENT=6
+export MAX_EXPOSURE_FRAC=0.70
+# OG universe
+export SERIES=KXBNB15M,KXSOL15M,KXXRP15M,KXETH15M
+export SATELLITE_SERIES=KXBTC15M,KXDOGE15M
 export SATELLITE_SIZE_MULT=0.5
 export METALS_SERIES=
 export METALS_SESSION=0
+# Governors OFF — they stacked us into the ETH/BTC nukes
 export SERIES_GOV=0
 export SETUP_GOV=0
-export SOFT_ENTRY_MAX=0.95
+# Soft favorites full size (the #3 edge)
+export SOFT_ENTRY_MAX=0.85
 export SOFT_ENTRY_SIZE_MULT=1.0
 export SOFT_ENTRY_EARLY_SECS=300
 export SOFT_ENTRY_EARLY_MULT=1.0
-# Allow 3 soft favorites (day-1 frequency); pre-settle still blocks the nuke
-export SOFT_CORR_MAX=3
-export STAGE_SIZE=0
+export SOFT_CORR_MAX=2
+export STAGE_SIZE=1
+export STAGE_SIZE_10M_MULT=0.50
+export STAGE_SIZE_5M_MULT=0.75
 export SOFT_BINANCE_STRICT=1
-export SOFT_BN_AGREE_MULT=1.20
+export SOFT_BN_AGREE_MULT=1.25
+# OG overnight allowed half-size on flat; not zero (zero starved #3)
 export SOFT_BN_FLAT_MULT=0.50
-export MAX_SIZE_MULT=1.20
-export TICKET_COST_CAP_FRAC=0.15
+export MAX_SIZE_MULT=1.35
+# One guard from the school of hard knocks
+export TICKET_COST_CAP_FRAC=0.25
 export LOSS_COOLDOWN_LOSSES=2
-export LOSS_COOLDOWN_SEC=180
-export LOSS_COOLDOWN_RISK_MULT=0.70
+export LOSS_COOLDOWN_SEC=900
+export LOSS_COOLDOWN_RISK_MULT=0.50
 export BINANCE_LEAD=1
 export BINANCE_WS=1
 export COINBASE_CONFIRM=1

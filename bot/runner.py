@@ -1687,10 +1687,13 @@ def main():
         f"soft_bn_strict={'ON' if SOFT_BINANCE_STRICT else 'OFF'}  "
         f"loss_cooldown={LOSS_COOLDOWN_LOSSES}@{LOSS_COOLDOWN_SEC:.0f}s×{LOSS_COOLDOWN_RISK_MULT:g}  "
         f"binance_lead={'OFF' if not (BINANCE_LEAD and LEAD_FEED) else BINANCE_LEAD_MODE}")
-    if HALT_DISABLED:
-        log("NO-STOP mode: entry halts disabled — trade until flat broke or operator kills")
-    elif st.halted:
+    if st.halted:
         log(f"already HALTED from prior run — settling only, no new trades")
+    elif HALT_DISABLED and HALT_CASH_TARGET > 0:
+        log(f"SPRINT mode: no loss-floor stops; lock & SAVE at cash >= "
+            f"${HALT_CASH_TARGET:.2f} (now ${st.cash:.2f})")
+    elif HALT_DISABLED:
+        log("NO-STOP mode: entry halts disabled — trade until flat broke or operator kills")
     elif HALT_CASH_TARGET > 0:
         log(f"cash save armed: halt & SAVE_BANKROLL when flat cash >= "
             f"${HALT_CASH_TARGET:.2f} (now ${st.cash:.2f})")
