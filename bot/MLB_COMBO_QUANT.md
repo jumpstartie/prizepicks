@@ -5,25 +5,35 @@ Data-driven analyzer for Kalshi baseball **popular combos** — scores moneyline
 ## Run
 
 ```bash
-python3 -u bot/mlb_combo_quant.py --stake 25
-python3 -u bot/mlb_combo_quant.py --stake 25 --json-out bot/mlb_combo_picks_today.json
+python3 -u bot/mlb_combo_quant.py --stake 25 --rank-by hitprob
+python3 -u bot/mlb_combo_quant.py --stake 25 --rank-by ev --json-out bot/mlb_combo_picks_today.json
+python3 -u bot/mlb_combo_quant.py --no-props   # moneylines only
 ```
+
+## Markets scored
+
+| Kind | Kalshi series |
+|------|----------------|
+| ML | `KXMLBGAME` |
+| Player props | `KXMLBHIT`, `HR`, `RBI`, `TB`, `HRR`, `KS` |
+| Game events | `KXMLBTOTAL`, `SPREAD`, `TEAMTOTAL`, `RFI`, `F5` |
 
 ## Inputs
 
 | File | Role |
 |------|------|
 | `bot/mlb_slate_today.json` | Probable pitchers, records, park, weather (update daily) |
-| Kalshi public + auth API | Live yes-ask moneylines / props |
+| Kalshi public + auth API | Live yes-ask moneylines / props / events |
 
-## Model (v1)
+## Model (v2)
 
 1. **SP quality** — ERA/WHIP z-score vs league, shrunk by innings; TBD/tiny samples cut SP weight  
 2. **Team strength** — Laplace win% gap (primary driver)  
 3. **Home / park / weather** — small adjustments; roof → weather muted  
-4. **Injuries** — manual notes in slate JSON  
-5. **Calibration** — `blend = 0.55*raw + 0.45*market` so edges stay honest  
-6. **Combos** — search 2–4 legs into payout bands ≈25¢ / 10¢ / 5¢ for $25→$100/$250/$500  
+4. **Props** — prior by type/threshold, adjusted for opposing SP + park/weather + team ML lean  
+5. **Events** — F5 from ML model; spreads/team totals/RFI/totals from SP+env  
+6. **Calibration** — blend toward market; same-game mixes get correlation haircut  
+7. **Combos** — 2–4 legs across high-prob / $100 / $250 / $500 bands 
 
 ## Honesty
 
