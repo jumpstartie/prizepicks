@@ -1,0 +1,400 @@
+{
+  "stake": 25.0,
+  "legs": [
+    {
+      "team": "PIT",
+      "event_key": "NYMPIT",
+      "label": "PIT ML (Pittsburgh)",
+      "market_price": 0.56,
+      "model_prob": 0.5997218237185453,
+      "edge": 0.07093182806883092,
+      "ticker": "KXMLBGAME-26AUG071840NYMPIT-PIT",
+      "kind": "ml"
+    },
+    {
+      "team": "NYM",
+      "event_key": "NYMPIT",
+      "label": "NYM ML (New York M)",
+      "market_price": 0.45,
+      "model_prob": 0.40477817628145485,
+      "edge": -0.10049294159676703,
+      "ticker": "KXMLBGAME-26AUG071840NYMPIT-NYM",
+      "kind": "ml"
+    },
+    {
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "label": "PHI ML (Philadelphia)",
+      "market_price": 0.67,
+      "model_prob": 0.6889596364911315,
+      "edge": 0.02829796491213643,
+      "ticker": "KXMLBGAME-26AUG071840TORPHI-PHI",
+      "kind": "ml"
+    },
+    {
+      "team": "TOR",
+      "event_key": "TORPHI",
+      "label": "TOR ML (Toronto)",
+      "market_price": 0.34,
+      "model_prob": 0.31554036350886866,
+      "edge": -0.07194010732685696,
+      "ticker": "KXMLBGAME-26AUG071840TORPHI-TOR",
+      "kind": "ml"
+    },
+    {
+      "team": "WSH",
+      "event_key": "CINWSH",
+      "label": "WSH ML (Washington)",
+      "market_price": 0.53,
+      "model_prob": 0.557104679771106,
+      "edge": 0.0511409052285019,
+      "ticker": "KXMLBGAME-26AUG071845CINWSH-WSH",
+      "kind": "ml"
+    },
+    {
+      "team": "CIN",
+      "event_key": "CINWSH",
+      "label": "CIN ML (Cincinnati)",
+      "market_price": 0.49,
+      "model_prob": 0.45189532022889406,
+      "edge": -0.07776465259409371,
+      "ticker": "KXMLBGAME-26AUG071845CINWSH-CIN",
+      "kind": "ml"
+    },
+    {
+      "team": "NYY",
+      "event_key": "ATLNYY",
+      "label": "NYY ML (New York Y)",
+      "market_price": 0.58,
+      "model_prob": 0.5983199971675663,
+      "edge": 0.03158620201304552,
+      "ticker": "KXMLBGAME-26AUG071905ATLNYY-NYY",
+      "kind": "ml"
+    },
+    {
+      "team": "ATL",
+      "event_key": "ATLNYY",
+      "label": "ATL ML (Atlanta)",
+      "market_price": 0.43,
+      "model_prob": 0.4061800028324337,
+      "edge": -0.05539534225015408,
+      "ticker": "KXMLBGAME-26AUG071905ATLNYY-ATL",
+      "kind": "ml"
+    },
+    {
+      "team": "BOS",
+      "event_key": "ATHBOS",
+      "label": "BOS ML (Boston)",
+      "market_price": 0.72,
+      "model_prob": 0.808,
+      "edge": 0.12222222222222223,
+      "ticker": "KXMLBGAME-26AUG071910ATHBOS-BOS",
+      "kind": "ml"
+    },
+    {
+      "team": "ATH",
+      "event_key": "ATHBOS",
+      "label": "ATH ML (A's)",
+      "market_price": 0.29,
+      "model_prob": 0.1965,
+      "edge": -0.3224137931034482,
+      "ticker": "KXMLBGAME-26AUG071910ATHBOS-ATH",
+      "kind": "ml"
+    },
+    {
+      "team": "MIA",
+      "event_key": "LAAMIA",
+      "label": "MIA ML (Miami)",
+      "market_price": 0.61,
+      "model_prob": 0.668155242561159,
+      "edge": 0.09533646321501466,
+      "ticker": "KXMLBGAME-26AUG071910LAAMIA-MIA",
+      "kind": "ml"
+    },
+    {
+      "team": "LAA",
+      "event_key": "LAAMIA",
+      "label": "LAA ML (Los Angeles A)",
+      "market_price": 0.4,
+      "model_prob": 0.3363447574388411,
+      "edge": -0.15913810640289727,
+      "ticker": "KXMLBGAME-26AUG071910LAAMIA-LAA",
+      "kind": "ml"
+    },
+    {
+      "team": "CWS",
+      "event_key": "CLECWS",
+      "label": "CWS ML (Chicago WS)",
+      "market_price": 0.43,
+      "model_prob": 0.3598849729905103,
+      "edge": -0.16305820234765045,
+      "ticker": "KXMLBGAME-26AUG071940CLECWS-CWS",
+      "kind": "ml"
+    },
+    {
+      "team": "CLE",
+      "event_key": "CLECWS",
+      "label": "CLE ML (Cleveland)",
+      "market_price": 0.58,
+      "model_prob": 0.6446150270094897,
+      "edge": 0.11140521898187883,
+      "ticker": "KXMLBGAME-26AUG071940CLECWS-CLE",
+      "kind": "ml"
+    },
+    {
+      "team": "MIL",
+      "event_key": "MINMIL",
+      "label": "MIL ML (Milwaukee)",
+      "market_price": 0.64,
+      "model_prob": 0.7229353869508662,
+      "edge": 0.1295865421107285,
+      "ticker": "KXMLBGAME-26AUG071940MINMIL-MIL",
+      "kind": "ml"
+    },
+    {
+      "team": "MIN",
+      "event_key": "MINMIL",
+      "label": "MIN ML (Minnesota)",
+      "market_price": 0.37,
+      "model_prob": 0.2815646130491338,
+      "edge": -0.23901455932666538,
+      "ticker": "KXMLBGAME-26AUG071940MINMIL-MIN",
+      "kind": "ml"
+    },
+    {
+      "team": "KC",
+      "event_key": "CHCKC",
+      "label": "KC ML (Kansas City)",
+      "market_price": 0.39,
+      "model_prob": 0.4138346894268051,
+      "edge": 0.061114588273859294,
+      "ticker": "KXMLBGAME-26AUG072010CHCKC-KC",
+      "kind": "ml"
+    },
+    {
+      "team": "CHC",
+      "event_key": "CHCKC",
+      "label": "CHC ML (Chicago C)",
+      "market_price": 0.62,
+      "model_prob": 0.5906653105731949,
+      "edge": -0.04731401520452427,
+      "ticker": "KXMLBGAME-26AUG072010CHCKC-CHC",
+      "kind": "ml"
+    },
+    {
+      "team": "TEX",
+      "event_key": "BALTEX",
+      "label": "TEX ML (Texas)",
+      "market_price": 0.59,
+      "model_prob": 0.5516623142646067,
+      "edge": -0.06497912836507347,
+      "ticker": "KXMLBGAME-26AUG072015BALTEX-TEX",
+      "kind": "ml"
+    },
+    {
+      "team": "BAL",
+      "event_key": "BALTEX",
+      "label": "BAL ML (Baltimore)",
+      "market_price": 0.43,
+      "model_prob": 0.4573376857353934,
+      "edge": 0.06357601333812424,
+      "ticker": "KXMLBGAME-26AUG072015BALTEX-BAL",
+      "kind": "ml"
+    },
+    {
+      "team": "STL",
+      "event_key": "COLSTL",
+      "label": "STL ML (St. Louis)",
+      "market_price": 0.62,
+      "model_prob": 0.7223157104479145,
+      "edge": 0.16502533943212017,
+      "ticker": "KXMLBGAME-26AUG072015COLSTL-STL",
+      "kind": "ml"
+    },
+    {
+      "team": "COL",
+      "event_key": "COLSTL",
+      "label": "COL ML (Colorado)",
+      "market_price": 0.4,
+      "model_prob": 0.2866842895520855,
+      "edge": -0.28328927611978627,
+      "ticker": "KXMLBGAME-26AUG072015COLSTL-COL",
+      "kind": "ml"
+    },
+    {
+      "team": "SD",
+      "event_key": "HOUSD",
+      "label": "SD ML (San Diego)",
+      "market_price": 0.54,
+      "model_prob": 0.5857550702585951,
+      "edge": 0.08473161158999076,
+      "ticker": "KXMLBGAME-26AUG072140HOUSD-SD",
+      "kind": "ml"
+    },
+    {
+      "team": "HOU",
+      "event_key": "HOUSD",
+      "label": "HOU ML (Houston)",
+      "market_price": 0.47,
+      "model_prob": 0.418744929741405,
+      "edge": -0.10905334097573405,
+      "ticker": "KXMLBGAME-26AUG072140HOUSD-HOU",
+      "kind": "ml"
+    },
+    {
+      "team": "AZ",
+      "event_key": "LADAZ",
+      "label": "AZ ML (Arizona)",
+      "market_price": 0.38,
+      "model_prob": 0.4057453339678654,
+      "edge": 0.06775087886280362,
+      "ticker": "KXMLBGAME-26AUG072140LADAZ-AZ",
+      "kind": "ml"
+    },
+    {
+      "team": "LAD",
+      "event_key": "LADAZ",
+      "label": "LAD ML (Los Angeles D)",
+      "market_price": 0.63,
+      "model_prob": 0.5987546660321348,
+      "edge": -0.04959576820296063,
+      "ticker": "KXMLBGAME-26AUG072140LADAZ-LAD",
+      "kind": "ml"
+    },
+    {
+      "team": "SEA",
+      "event_key": "TBSEA",
+      "label": "SEA ML (Seattle)",
+      "market_price": 0.52,
+      "model_prob": 0.4410198338922139,
+      "edge": -0.15188493482266563,
+      "ticker": "KXMLBGAME-26AUG072145TBSEA-SEA",
+      "kind": "ml"
+    },
+    {
+      "team": "TB",
+      "event_key": "TBSEA",
+      "label": "TB ML (Tampa Bay)",
+      "market_price": 0.49,
+      "model_prob": 0.5634801661077862,
+      "edge": 0.1499595226689514,
+      "ticker": "KXMLBGAME-26AUG072145TBSEA-TB",
+      "kind": "ml"
+    },
+    {
+      "team": "SF",
+      "event_key": "DETSF",
+      "label": "SF ML (San Francisco)",
+      "market_price": 0.46,
+      "model_prob": 0.4272577930082268,
+      "edge": -0.07117871085168093,
+      "ticker": "KXMLBGAME-26AUG072215DETSF-SF",
+      "kind": "ml"
+    },
+    {
+      "team": "DET",
+      "event_key": "DETSF",
+      "label": "DET ML (Detroit)",
+      "market_price": 0.55,
+      "model_prob": 0.5772422069917733,
+      "edge": 0.049531285439587736,
+      "ticker": "KXMLBGAME-26AUG072215DETSF-DET",
+      "kind": "ml"
+    },
+    {
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "label": "Harper 1+ hits",
+      "market_price": 0.67,
+      "model_prob": 0.6755000000000001,
+      "edge": 0.008208955223880654,
+      "ticker": "KXMLBHIT-26AUG071840TORPHI-PHIBHARPER3-1",
+      "kind": "prop"
+    },
+    {
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "label": "Schwarber 1+ hits",
+      "market_price": 0.61,
+      "model_prob": 0.6155,
+      "edge": 0.00901639344262306,
+      "ticker": "KXMLBHIT-26AUG071840TORPHI-PHIKSCHWARBER12-1",
+      "kind": "prop"
+    },
+    {
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "label": "Schwarber 1+ HR",
+      "market_price": 0.25,
+      "model_prob": 0.2335,
+      "edge": -0.06599999999999995,
+      "ticker": "KXMLBHR-26AUG071840TORPHI-PHIKSCHWARBER12-1",
+      "kind": "prop"
+    }
+  ],
+  "combos": [
+    {
+      "band": "$100 (4\u00d7)",
+      "market_price": 0.19141632000000003,
+      "model_prob": 0.290691065809293,
+      "edge": 0.5186326108938515,
+      "payout_if_hit": 130.60537366928796,
+      "profit_if_hit": 105.60537366928796,
+      "expected_profit": 12.96581527234629,
+      "legs": [
+        "STL ML (St. Louis)",
+        "MIL ML (Milwaukee)",
+        "BOS ML (Boston)",
+        "PHI ML (Philadelphia)"
+      ],
+      "tickers": [
+        "KXMLBGAME-26AUG072015COLSTL-STL",
+        "KXMLBGAME-26AUG071940MINMIL-MIL",
+        "KXMLBGAME-26AUG071910ATHBOS-BOS",
+        "KXMLBGAME-26AUG071840TORPHI-PHI"
+      ]
+    },
+    {
+      "band": "$250 (10\u00d7)",
+      "market_price": 0.13999104,
+      "model_prob": 0.23774781768420525,
+      "edge": 0.6983073894172458,
+      "payout_if_hit": 178.58285787433252,
+      "profit_if_hit": 153.58285787433252,
+      "expected_profit": 17.457684735431144,
+      "legs": [
+        "STL ML (St. Louis)",
+        "TB ML (Tampa Bay)",
+        "MIL ML (Milwaukee)",
+        "BOS ML (Boston)"
+      ],
+      "tickers": [
+        "KXMLBGAME-26AUG072015COLSTL-STL",
+        "KXMLBGAME-26AUG072145TBSEA-TB",
+        "KXMLBGAME-26AUG071940MINMIL-MIL",
+        "KXMLBGAME-26AUG071910ATHBOS-BOS"
+      ]
+    },
+    {
+      "band": "$500 (20\u00d7)",
+      "market_price": 0.06695752,
+      "model_prob": 0.1064534288219009,
+      "edge": 0.5898651685710714,
+      "payout_if_hit": 373.3710567535954,
+      "profit_if_hit": 348.3710567535954,
+      "expected_profit": 14.746629214276787,
+      "legs": [
+        "STL ML (St. Louis)",
+        "TB ML (Tampa Bay)",
+        "CLE ML (Cleveland)",
+        "AZ ML (Arizona)"
+      ],
+      "tickers": [
+        "KXMLBGAME-26AUG072015COLSTL-STL",
+        "KXMLBGAME-26AUG072145TBSEA-TB",
+        "KXMLBGAME-26AUG071940CLECWS-CLE",
+        "KXMLBGAME-26AUG072140LADAZ-AZ"
+      ]
+    }
+  ]
+}
