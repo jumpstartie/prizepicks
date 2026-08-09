@@ -45,9 +45,9 @@ class Trader:
         mode: str = "paper",
         keypair: Optional[Keypair] = None,
         rpc_url: str = "https://api.mainnet-beta.solana.com",
-        buy_sol: float = 0.05,
-        slippage_pct: float = 12.0,
-        priority_fee_sol: float = 0.001,
+        buy_sol: float = 0.0015,
+        slippage_pct: float = 5.0,
+        priority_fee_sol: float = 0.00005,
         state_path: Path = Path("sniper/state.json"),
         trades_path: Path = Path("sniper/trades.jsonl"),
     ):

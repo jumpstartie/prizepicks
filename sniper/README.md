@@ -79,8 +79,11 @@ bash sniper/start_live.sh
 | `MIN_PUMP_REPLIES` | 5 | Pump.fun chat activity |
 | `MIN_USD_MCAP` / `MAX_USD_MCAP` | 8k / 250k | Avoid dust + late chase |
 | `MIN_QUALITY_SCORE` | 55 | Combined community score 0–100 |
-| `BUY_SOL` | 0.05 | Size per entry |
-| `TAKE_PROFIT_X` / `STOP_LOSS_X` | 2.0 / 0.55 | Exit multiples vs entry mcap |
+| `BUY_SOL` | 0.0015 | Size per entry (small-bankroll test default) |
+| `SLIPPAGE_PCT` | 5 | Lower = stricter fills / less fee bleed |
+| `PRIORITY_FEE_SOL` | 0.00005 | Cheap priority tip for micro tests |
+| `MIN_SOL_RESERVE` | 0.0025 | SOL kept for fees / rent |
+| `TAKE_PROFIT_X` / `STOP_LOSS_X` | 1.8 / 0.60 | Exit multiples vs entry mcap |
 
 ## Files
 

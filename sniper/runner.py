@@ -152,9 +152,13 @@ async def run_loop(args: argparse.Namespace) -> None:
             f"wallet {pubkey} balance={bal:.4f} SOL "
             f"({'signing' if keypair else 'watch-only'})"
         )
-        if mode == "live" and bal < buy_sol + 0.01:
+        reserve = env_float("MIN_SOL_RESERVE", 0.0025)
+        priority = env_float("PRIORITY_FEE_SOL", 0.00005)
+        need = buy_sol + reserve + priority
+        if mode == "live" and bal < need:
             raise SystemExit(
-                f"insufficient SOL for live buys (have {bal:.4f}, need ~{buy_sol + 0.01:.4f})"
+                f"insufficient SOL for live buys (have {bal:.4f}, need ~{need:.4f} "
+                f"= buy {buy_sol} + reserve {reserve} + priority {priority})"
             )
     except WalletError as e:
         log(f"wallet address not set: {e}")
@@ -172,8 +176,8 @@ async def run_loop(args: argparse.Namespace) -> None:
         keypair=keypair,
         rpc_url=rpc,
         buy_sol=buy_sol,
-        slippage_pct=env_float("SLIPPAGE_PCT", 12.0),
-        priority_fee_sol=env_float("PRIORITY_FEE_SOL", 0.001),
+        slippage_pct=env_float("SLIPPAGE_PCT", 5.0),
+        priority_fee_sol=env_float("PRIORITY_FEE_SOL", 0.00005),
         state_path=ROOT / "state.json",
         trades_path=ROOT / "trades.jsonl",
     )
