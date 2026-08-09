@@ -1,0 +1,6 @@
+httpx>=0.27
+solders>=0.21
+base58>=2.1
+websockets>=12.0
+# Optional: Axiom Trade SDK for Pulse / authenticated feeds
+# axiomtradeapi>=1.1.6

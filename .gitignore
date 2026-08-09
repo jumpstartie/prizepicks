@@ -1,0 +1,23 @@
+# Secrets — never commit keys
+secrets/
+.env
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Sniper runtime
+sniper/state.json
+sniper/trades.jsonl
+sniper/seen_mints.json
+sniper/*.log
+
+# Kalshi bot runtime (if present locally)
+bot/state*.json
+bot/trades*.jsonl
+bot/*.log
+bot/health.json
+bot/STOPPED.flag
+bot/__pycache__/
