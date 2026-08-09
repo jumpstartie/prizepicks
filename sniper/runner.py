@@ -80,6 +80,9 @@ def quick_prefilter(coin: dict[str, Any], cfg: FilterConfig) -> Optional[str]:
     """Cheap rejects before Twitter/website HTTP calls."""
     if cfg.reject_nsfw and coin.get("nsfw"):
         return "nsfw"
+    # Prefer still-on-curve launches for PumpPortal pool=pump micros
+    if env_bool("REQUIRE_ON_CURVE", True) and coin.get("complete") is True:
+        return "already_migrated"
     mcap = float(coin.get("usd_market_cap") or 0)
     if mcap < cfg.min_usd_mcap or mcap > cfg.max_usd_mcap:
         return "mcap_band"
