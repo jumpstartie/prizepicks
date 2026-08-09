@@ -71,17 +71,20 @@ export HALT_CASH_TARGET=0
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
 export LOGNORMAL_GATE=0
-# BANK the edge — don't ride soft mid-band to binary settle
-export TAKE_PROFIT_ABS=0.92
+# SELL WHEN WE CAN — bank early while the book still has bids.
+# Late pre-settle into empty books = IOC no-fill → settle nuke.
+export TAKE_PROFIT_ABS=0.80
+export TAKE_PROFIT_GAIN=0.08
 export TAKE_PROFIT_MULT=0
-export TAKE_PROFIT_CAP=0.97
+export TAKE_PROFIT_CAP=0.95
 export TAKE_PROFIT_MIN_ENTRY=0
-export SOFT_SPIKE_TP=0.88
+export SOFT_SPIKE_TP=0.78
 export SPIKE_FADE=1
-export SPIKE_PEAK=0.88
-export SPIKE_GIVEBACK=0.05
-export SPIKE_MIN_GAIN=0.04
-export PRE_SETTLE_EXIT_SECS=75
+export SPIKE_PEAK=0.78
+export SPIKE_GIVEBACK=0.04
+export SPIKE_MIN_GAIN=0.03
+# Start flattening 3m out (liquidity dies in the last ~60s)
+export PRE_SETTLE_EXIT_SECS=180
 export PRE_SETTLE_MAX_ENTRY=0.70
 export EQUITY_HARVEST=0
 # MID-BAND ONLY — the EV window for 50–70% WR

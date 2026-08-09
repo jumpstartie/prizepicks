@@ -1175,16 +1175,33 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
              "pre_settle": "PRE-SETTLE"}.get(reason, "TAKE PROFIT")
     if st.mode == "live":
         try:
+            # Price into the live book when possible (empty late books = no fill).
+            yes_bid = yes_ask = None
+            try:
+                m = client.market(p.ticker)
+                yes_bid = (float(m["yes_bid_dollars"])
+                           if m.get("yes_bid_dollars") is not None else None)
+                yes_ask = (float(m["yes_ask_dollars"])
+                           if m.get("yes_ask_dollars") is not None else None)
+            except Exception:
+                pass
             if p.side == "yes":
-                # For TP, sell into bid aggressively; for stop same
+                # Sell YES: hit the bid; floor at 1¢ so IOC still crosses crumbs
+                px = 0.01
+                if yes_bid is not None and yes_bid > 0:
+                    px = max(0.01, round(yes_bid - 0.01, 2))
                 resp = client.create_order(
-                    p.ticker, "ask", p.contracts, 0.01,
+                    p.ticker, "ask", p.contracts, px,
                     post_only=False, time_in_force="immediate_or_cancel",
                     reduce_only=True,
                 )
             else:
+                # Close NO by buying YES into the ask
+                px = 0.99
+                if yes_ask is not None and yes_ask < 1.0:
+                    px = min(0.99, round(yes_ask + 0.01, 2))
                 resp = client.create_order(
-                    p.ticker, "bid", p.contracts, 0.99,
+                    p.ticker, "bid", p.contracts, px,
                     post_only=False, time_in_force="immediate_or_cancel",
                     reduce_only=True,
                 )
@@ -1195,7 +1212,14 @@ def close_position_exit(client: KalshiClient, st: State, p: Position, mark: floa
                 avg_f = float(avg)
                 exit_px = avg_f if p.side == "yes" else (1.0 - avg_f)
             if fill <= 0:
-                log(f"{label} IOC no fill {p.ticker} — will retry next poll")
+                # Don't spam every poll when the book is empty (bid=0/ask=1)
+                empty = ((p.side == "yes" and (yes_bid is None or yes_bid <= 0))
+                         or (p.side == "no" and (yes_ask is None or yes_ask >= 1.0)))
+                if empty:
+                    log(f"{label} no book to sell {p.ticker} "
+                        f"(yes_bid={yes_bid} yes_ask={yes_ask}) — wait/settle")
+                else:
+                    log(f"{label} IOC no fill {p.ticker} @ {px:.2f} — retry")
                 return
             p.contracts = fill
         except Exception as e:
@@ -1306,13 +1330,23 @@ def check_exits(client: KalshiClient, st: State, markets_by_ticker: dict):
             continue
 
         # Anti-nuke: soft/mid must not ride to binary settle (today's −$18/−$21s).
+        # Only fire while a book still exists — empty late books just spam IOC misses.
         if (PRE_SETTLE_EXIT_SECS > 0
                 and secs_left <= PRE_SETTLE_EXIT_SECS
                 and (p.entry or 0) < PRE_SETTLE_MAX_ENTRY
-                and secs_left > 0):
+                and secs_left > 0
+                and mark is not None and mark > 0.02):
             log(f"pre-settle exit {p.ticker} {p.side} entry={p.entry:.2f} "
-                f"mark={mark:.2f} {secs_left:.0f}s left — no binary ride")
+                f"mark={mark:.2f} {secs_left:.0f}s left — sell while book lives")
             close_position_exit(client, st, p, mark, "pre_settle")
+            continue
+        # Also sell any time we're green by ≥ gain threshold and <5m left
+        # (liquidity window) — complements abs TP for mid-band.
+        if (TAKE_PROFIT_GAIN > 0 and mark >= p.entry + TAKE_PROFIT_GAIN
+                and secs_left <= 300 and secs_left > 0):
+            log(f"green sell {p.ticker} {p.side} entry={p.entry:.2f} "
+                f"mark={mark:.2f} (+{mark - p.entry:.2f}) {secs_left:.0f}s left")
+            close_position_exit(client, st, p, mark, "take_profit")
             continue
 
         # Stop-loss (off when STOP_LOSS_PCT <= 0); also disabled in final minute
