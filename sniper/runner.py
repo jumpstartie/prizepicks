@@ -24,7 +24,7 @@ from community import normalize_twitter
 from pumpfun_client import PumpFunClient
 from scorer import FilterConfig, evaluate_coin
 from trader import Trader
-from wallet import WalletError, get_sol_balance, load_keypair, pubkey_str
+from wallet import WalletError, get_sol_balance, load_keypair, resolve_public_key
 
 
 def log(msg: str) -> None:
@@ -137,18 +137,27 @@ async def run_loop(args: argparse.Namespace) -> None:
 
     keypair = None
     pubkey = ""
-    if mode == "live" or args.connect_wallet:
-        try:
-            keypair = load_keypair()
-            pubkey = pubkey_str(keypair)
-            bal = await get_sol_balance(rpc, pubkey)
-            log(f"wallet {pubkey} balance={bal:.4f} SOL (rpc ok)")
-            if mode == "live" and bal < buy_sol + 0.01:
-                raise SystemExit(f"insufficient SOL for live buys (have {bal:.4f}, need ~{buy_sol+0.01:.4f})")
-        except WalletError as e:
-            if mode == "live":
-                raise SystemExit(str(e))
-            log(f"wallet not connected yet: {e}")
+    try:
+        keypair = load_keypair()
+    except WalletError as e:
+        if mode == "live":
+            raise SystemExit(str(e))
+        if args.connect_wallet:
+            log(f"no signing key yet (watch-only ok): {e}")
+
+    try:
+        pubkey = resolve_public_key(keypair)
+        bal = await get_sol_balance(rpc, pubkey)
+        log(
+            f"wallet {pubkey} balance={bal:.4f} SOL "
+            f"({'signing' if keypair else 'watch-only'})"
+        )
+        if mode == "live" and bal < buy_sol + 0.01:
+            raise SystemExit(
+                f"insufficient SOL for live buys (have {bal:.4f}, need ~{buy_sol + 0.01:.4f})"
+            )
+    except WalletError as e:
+        log(f"wallet address not set: {e}")
 
     axiom = AxiomBridge()
     if axiom.enabled and pubkey:

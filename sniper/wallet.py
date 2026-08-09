@@ -82,3 +82,21 @@ async def get_sol_balance(rpc_url: str, pubkey: str) -> float:
 
 def pubkey_str(kp: Keypair) -> str:
     return str(kp.pubkey())
+
+
+def resolve_public_key(keypair: Optional[Keypair] = None) -> str:
+    """Prefer loaded keypair pubkey; else PHANTOM_PUBLIC_KEY from env."""
+    if keypair is not None:
+        return str(keypair.pubkey())
+    pub = (os.getenv("PHANTOM_PUBLIC_KEY") or "").strip()
+    if not pub:
+        raise WalletError(
+            "No wallet address. Set PHANTOM_PUBLIC_KEY or provide a Phantom private key."
+        )
+    # validate format
+    from solders.pubkey import Pubkey
+
+    try:
+        return str(Pubkey.from_string(pub))
+    except Exception as e:
+        raise WalletError(f"invalid PHANTOM_PUBLIC_KEY: {e}") from e
