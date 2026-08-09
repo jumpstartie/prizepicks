@@ -22,9 +22,13 @@ import urllib.request
 import uuid
 from typing import Any, Optional
 
+# Prod trading + public market data both live on elections host (legacy
+# external-api.kalshi.com still works for some accounts but elections is canonical).
 PUBLIC_BASE = "https://api.elections.kalshi.com/trade-api/v2"
-PROD_BASE = "https://external-api.kalshi.com/trade-api/v2"
-DEMO_BASE = "https://external-api.demo.kalshi.co/trade-api/v2"
+PROD_BASE = os.environ.get(
+    "KALSHI_TRADE_BASE", "https://api.elections.kalshi.com/trade-api/v2"
+)
+DEMO_BASE = "https://demo-api.kalshi.co/trade-api/v2"
 
 
 class KalshiClient:
