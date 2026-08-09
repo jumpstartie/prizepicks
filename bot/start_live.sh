@@ -49,9 +49,10 @@ export EDGE_LOOKBACK=20
 export EDGE_PNL_CLIP=20
 export EDGE_PRIOR_STRENGTH=16
 export EDGE_PRIOR_WR=0.60
-# Floor under ~$50–70 book; no trail / cash sprint
+# Catastrophe-only floor — keep running otherwise.
+# No trail / cash-save / per-trade stop (those killed uptime).
 export HALT_DISABLED=0
-export HALT_FLOOR=30
+export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0
 export HALT_EQUITY_FRAC=0
 export HALT_LOSS_BUFFER=1
