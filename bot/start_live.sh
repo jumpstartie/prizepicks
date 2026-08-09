@@ -8,8 +8,18 @@
 set -euo pipefail
 cd /workspace
 set -a
-# shellcheck disable=SC1091
-source secrets/env.sh
+# Prefer secrets/env.sh; fall back to already-exported KALSHI_* env vars.
+if [[ -f secrets/env.sh ]]; then
+  # shellcheck disable=SC1091
+  source secrets/env.sh
+elif [[ -n "${KALSHI_API_KEY_ID:-}" && ( -n "${KALSHI_PRIVATE_KEY:-}" || -n "${KALSHI_PRIVATE_KEY_PATH:-}" ) ]]; then
+  echo "midband deploy: using KALSHI_* from environment (no secrets/env.sh)"
+else
+  echo "FATAL: missing Kalshi credentials." >&2
+  echo "Create secrets/env.sh with KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PATH" >&2
+  echo "  (or export those vars in the Cloud Agent environment), then re-run." >&2
+  exit 1
+fi
 set +a
 
 # Unhalt + reanchor HW for this leg
