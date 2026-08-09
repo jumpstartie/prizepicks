@@ -249,19 +249,29 @@ class Trader:
     ) -> str:
         assert self.keypair is not None
         pub = str(self.keypair.pubkey())
+        # PumpPortal is picky: stringified amount/fees and pool=pump work more
+        # reliably for bonding-curve micros than floats + pool=auto.
+        amt = amount if isinstance(amount, str) else str(amount)
         form = {
             "publicKey": pub,
             "action": action,
             "mint": mint,
-            "amount": amount,
+            "amount": amt,
             "denominatedInSol": "true" if denominated_in_sol else "false",
-            "slippage": int(self.slippage_pct),
-            "priorityFee": float(self.priority_fee_sol),
-            "pool": "auto",
+            "slippage": str(int(self.slippage_pct)),
+            "priorityFee": str(self.priority_fee_sol),
+            "pool": "pump",
         }
         r = await client.post(PUMPPORTAL_TRADE_LOCAL, data=form, timeout=40.0)
         if r.status_code != 200:
-            raise RuntimeError(f"pumpportal trade-local {r.status_code}: {r.text[:300]}")
+            # one retry on auto pool (migrated / raydium coins)
+            if form["pool"] == "pump":
+                form["pool"] = "auto"
+                r = await client.post(PUMPPORTAL_TRADE_LOCAL, data=form, timeout=40.0)
+            if r.status_code != 200:
+                raise RuntimeError(
+                    f"pumpportal trade-local {r.status_code}: {r.text[:300]} form={form}"
+                )
         tx = VersionedTransaction(
             VersionedTransaction.from_bytes(r.content).message,
             [self.keypair],
