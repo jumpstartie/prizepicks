@@ -32,7 +32,7 @@ def log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def load_env_file(path: Path) -> None:
+def load_env_file(path: Path, *, override: bool = True) -> None:
     if not path.exists():
         return
     for line in path.read_text().splitlines():
@@ -41,7 +41,9 @@ def load_env_file(path: Path) -> None:
             continue
         k, v = line.split("=", 1)
         k, v = k.strip(), v.strip().strip('"').strip("'")
-        if k and k not in os.environ:
+        if not k:
+            continue
+        if override or k not in os.environ:
             os.environ[k] = v
 
 
@@ -80,8 +82,8 @@ def quick_prefilter(coin: dict[str, Any], cfg: FilterConfig) -> Optional[str]:
     """Cheap rejects before Twitter/website HTTP calls."""
     if cfg.reject_nsfw and coin.get("nsfw"):
         return "nsfw"
-    # Prefer still-on-curve launches for PumpPortal pool=pump micros
-    if env_bool("REQUIRE_ON_CURVE", True) and coin.get("complete") is True:
+    # Default allows migrated/hot coins for more movement; set REQUIRE_ON_CURVE=1 to restrict
+    if env_bool("REQUIRE_ON_CURVE", False) and coin.get("complete") is True:
         return "already_migrated"
     mcap = float(coin.get("usd_market_cap") or 0)
     if mcap < cfg.min_usd_mcap or mcap > cfg.max_usd_mcap:
@@ -181,6 +183,7 @@ async def run_loop(args: argparse.Namespace) -> None:
         buy_sol=buy_sol,
         slippage_pct=env_float("SLIPPAGE_PCT", 5.0),
         priority_fee_sol=env_float("PRIORITY_FEE_SOL", 0.00005),
+        pool=os.getenv("TRADE_POOL") or "auto",
         state_path=ROOT / "state.json",
         trades_path=ROOT / "trades.jsonl",
     )

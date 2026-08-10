@@ -48,6 +48,7 @@ class Trader:
         buy_sol: float = 0.0015,
         slippage_pct: float = 5.0,
         priority_fee_sol: float = 0.00005,
+        pool: str = "auto",
         state_path: Path = Path("sniper/state.json"),
         trades_path: Path = Path("sniper/trades.jsonl"),
     ):
@@ -57,6 +58,7 @@ class Trader:
         self.buy_sol = float(buy_sol)
         self.slippage_pct = float(slippage_pct)
         self.priority_fee_sol = float(priority_fee_sol)
+        self.pool = (pool or "auto").strip() or "auto"
         self.state_path = state_path
         self.trades_path = trades_path
         self.positions: dict[str, Position] = {}
@@ -249,29 +251,37 @@ class Trader:
     ) -> str:
         assert self.keypair is not None
         pub = str(self.keypair.pubkey())
-        # PumpPortal is picky: stringified amount/fees and pool=pump work more
-        # reliably for bonding-curve micros than floats + pool=auto.
-        amt = amount if isinstance(amount, str) else str(amount)
-        form = {
-            "publicKey": pub,
-            "action": action,
-            "mint": mint,
-            "amount": amt,
-            "denominatedInSol": "true" if denominated_in_sol else "false",
-            "slippage": str(int(self.slippage_pct)),
-            "priorityFee": str(self.priority_fee_sol),
-            "pool": "pump",
-        }
-        r = await client.post(PUMPPORTAL_TRADE_LOCAL, data=form, timeout=40.0)
-        if r.status_code != 200:
-            # one retry on auto pool (migrated / raydium coins)
-            if form["pool"] == "pump":
-                form["pool"] = "auto"
-                r = await client.post(PUMPPORTAL_TRADE_LOCAL, data=form, timeout=40.0)
-            if r.status_code != 200:
-                raise RuntimeError(
-                    f"pumpportal trade-local {r.status_code}: {r.text[:300]} form={form}"
-                )
+        # PumpPortal is picky: stringify amount/fees. Prefer configured pool,
+        # then fall back across auto/pump for migrated vs curve coins.
+        amt = amount if isinstance(amount, str) else f"{float(amount):.6f}".rstrip("0").rstrip(".")
+        # Avoid scientific notation (e.g. 5e-05) — PumpPortal 400s on it.
+        prio = f"{float(self.priority_fee_sol):.8f}".rstrip("0").rstrip(".")
+        pools = [self.pool]
+        for alt in ("auto", "pump", "pump-amm", "raydium"):
+            if alt not in pools:
+                pools.append(alt)
+        last_err = ""
+        r = None
+        form: dict[str, Any] = {}
+        for pool in pools:
+            form = {
+                "publicKey": pub,
+                "action": action,
+                "mint": mint,
+                "amount": amt,
+                "denominatedInSol": "true" if denominated_in_sol else "false",
+                "slippage": str(int(self.slippage_pct)),
+                "priorityFee": prio,
+                "pool": pool,
+            }
+            r = await client.post(PUMPPORTAL_TRADE_LOCAL, data=form, timeout=40.0)
+            if r.status_code == 200:
+                break
+            last_err = f"{r.status_code}: {r.text[:200]}"
+        if r is None or r.status_code != 200:
+            raise RuntimeError(
+                f"pumpportal trade-local failed ({last_err}) form={form}"
+            )
         tx = VersionedTransaction(
             VersionedTransaction.from_bytes(r.content).message,
             [self.keypair],
