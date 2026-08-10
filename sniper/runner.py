@@ -161,9 +161,10 @@ async def run_loop(args: argparse.Namespace) -> None:
         priority = env_float("PRIORITY_FEE_SOL", 0.00005)
         need = buy_sol + reserve + priority
         if mode == "live" and bal < need:
-            raise SystemExit(
-                f"insufficient SOL for live buys (have {bal:.4f}, need ~{need:.4f} "
-                f"= buy {buy_sol} + reserve {reserve} + priority {priority})"
+            # Still allow exit management for open positions when bag is dust.
+            log(
+                f"insufficient SOL for new live buys (have {bal:.4f}, need ~{need:.4f}) "
+                f"— continuing to manage exits only"
             )
     except WalletError as e:
         log(f"wallet address not set: {e}")
