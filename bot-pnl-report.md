@@ -1,10 +1,11 @@
 # Kalshi 15m Bot — PnL Update
 
-**As of:** 2026-08-07 ~00:05 UTC (automation cron)  
-**Data freshness:** **STALE (~14h26m)** — [DO OR DIE](https://cursor.com/agents/bc-2f9f466b-ae51-4aa8-b5f1-be662ba91ecb) (`cursor/kalshi-15m-research-1ecb`) still shows the same newest equity **[09:39:01]** `equity=$56.82 cash=$46.60 open=2 closed=424 win%=86 pnl=+52.2886`. Supervising agent last activity **~09:39:24Z**; status **IDLE**. No SETTLE / FILL / equity lines after the 09:39 wake + 3rd fill.  
-**Abandoned sprint VM:** [Bot $100 target](https://cursor.com/agents/bc-019fd43c-4a8f-76c0-a895-cc8091c29776) still **frozen @00:46** — mark **$60.61** / closed **14 / 43% / −$15.80** / open **0**. ~23.3h stale. Separate reset ledger — **do not merge**.  
-**Source:** DO OR DIE + Bot $100 target transcript pulls @00:04 via `batch-fetch-details` (identical end state to 23:03 / PR #57). No newer live trading agent found.  
-**Bot status (last confirmed @09:39):** **SPRINT mode** — `HALT_DISABLED=1`, `HALT_CASH_TARGET=$100`, `HALT_FLOOR` off / halt=$0; runner + watchdog + keep_alive present at that check; `halted=False`. After the equity print, a 3rd fill left cash **~$41.50** with **3 opens** on the `0545` window. **Runner status after 09:39 unknown** (no new supervising transcript).
+**As of:** 2026-08-11 ~09:05 UTC (automation cron)  
+**Data freshness:** preferred filled equity mark still **STALE (~92.57h)** — [DO OR DIE](https://cursor.com/agents/bc-2f9f466b-ae51-4aa8-b5f1-be662ba91ecb) (`cursor/kalshi-15m-research-1ecb`) newest filled-444 equity remains **[12:30:53]** `equity=$61.71 cash=$61.71 open=0 closed=444 win%=86 pnl=+57.1847`. Supervising agent still **IDLE** (`lastMessageActivity` **14:03:51Z**, ~19.02h vs pull). Transcript **UNCHANGED** vs 08:03 — **no new Kalshi equity / FILL / SETTLE** after the **[19:40:33] HALTED** mark; ASADO still held with **$0 realized** (mark ~0.955–0.957x, unrealized ≈ −$0.01).  
+**Live reset book:** still **HALTED** — newest live mark **[19:40:33]** `equity=$43.65 cash=$39.64 open=2 closed=32 win%=41 pnl=-11.4299 HALTED` (**unchanged** vs 08:03; ~37.41h since Aug 9 evening).  
+**Abandoned sprint VM:** [Bot $100 target](https://cursor.com/agents/bc-019fd43c-4a8f-76c0-a895-cc8091c29776) still **frozen @00:46** — mark **$60.61** / closed **14 / 43% / −$15.80** / open **0**. ~128.3h stale. Separate reset ledger — **do not merge**.  
+**Source:** DO OR DIE + Bot $100 target transcript pulls @09:05 via `batch-fetch-details` (`2026-08-11T09-05-21Z-9cdb`). DO OR DIE transcript **UNCHANGED** (11,759,771 bytes / 108,368 lines; md5 `7b1aac42770c59e5fe5ac1c83964873f`). Draft events PR **#126**.  
+**Bot status (live Kalshi):** Mid-band EV printer remains **HALTED** at floor **$20**. Index shows agent **IDLE**; no unhalt / redeploy / new Kalshi tape. Sniper position still open; last mark refresh still ~14:03 (ASADO ~0.955–0.957x).
 
 ---
 
@@ -12,59 +13,107 @@
 
 | Metric | Value |
 |---|---|
-| **Latest equity / cash** | **$56.82** / **$46.60** @09:39:01 (**2 opens** at mark; then **3 opens / ~$41.50** cash) |
-| **Latest closed book (DO OR DIE)** | **424 closes · 86% · +$52.29** (~**364–60 to 365–59**) |
-| **Cash-save target** | **$100** armed — gap **~$53.40** on mark cash / **~$58.50** after 3rd fill (**not hit**) |
-| **Prior report (PR #57 / 23:00)** | same **$56.82 / 424 / +$52.29** @09:39 |
-| **Δ vs prior report** | closed **424→424 (0)**; closed pnl **unchanged**; equity **unchanged** |
-| **Hourly since ~23:03 cron** | **0–0 / $0** — no new equity/FILL/SETTLE in tape |
-| **Day equity vs $93.75 @10:00** | **−$36.93** at last mark **$56.82** |
-| **vs start_equity ($61.54)** | **−$4.72** at last mark **$56.82** |
-| **High-water** | **~$99.12** (pre-halt overnight); state `hw 56.8223` @09:39 |
+| **Latest filled equity / cash (preferred lifetime)** | **$61.71** / **$61.71** @12:30:53 (**flat on mark**, open **0**) — **STALE ~92.57h** |
+| **Latest closed book (DO OR DIE filled)** | **444 closes · 86% · +$57.18** (~**382–62**) |
+| **Latest live mark (reset book)** | **$43.65** / cash **$39.64** / open **2** / closed **32** / win% **41** / pnl **−$11.43** — **HALTED** @19:40 (**unchanged**) |
+| **Live ops this hour** | Transcript **UNCHANGED**; **0** new Kalshi FILL/SETTLE/equity after 19:40; agent **IDLE** @09:05 (LMA still 14:03); sniper still holding ASADO ~**0.955–0.957x**, **$0 realized** |
+| **Cash-save / halt** | **halt if equity ≤ $20** — still **TRIGGERED**; cash_target OFF; SPRINT OFF |
+| **Prior report (PR #163 / 08:03)** | **$61.71 / 444 / +$57.18** filled; live **$43.65 HALTED / 32 / −$11.43** |
+| **Δ vs prior report (filled book)** | closed **444→444 (+0)**; closed pnl **+$0.00**; equity **+$0.00** |
+| **Hourly since ~08:03 cron (filled book)** | **0–0 / $0** on preferred filled counters |
+| **Hourly live reset book** | **0–0 / $0**; still **HALTED** at **$43.65 / $39.64** |
+| **Day equity vs $93.75 @12:00** | filled mark **−$32.04** ($61.71); live mark **−$50.10** ($43.65) |
+| **vs start_equity ($61.54)** | filled **+$0.17**; live **−$17.89** |
 | **Abandoned Bot $100 VM** | still **$60.61 / 6W–8L / −$15.80** @00:46 — do not merge |
-| **Agent status** | DO OR DIE **IDLE** since 09:39 (~14.4h); Bot $100 target **IDLE** since ~00:46 (~23.3h) |
+| **Agent status** | DO OR DIE **IDLE** @**09:05** (LMA **14:03:51Z**, ~19.02h); Bot $100 target **IDLE** since ~00:46 (~128.3h) |
+| **Transcript** | **UNCHANGED** — **11,759,771** bytes / **108,368** lines; md5 `7b1aac42770c59e5fe5ac1c83964873f` |
 
-Live book source of truth remains **DO OR DIE**, but the supervising transcript has **not advanced** past the 09:39 wake. The three `0545` opens that should have settled ~09:45 are **still unresolved in the pull** — next mark unknown. Fifteenth consecutive stale hourly after the 09:39 wake (11:00, 12:00 gap/miss, 13:00–00:00).
+Live book source of truth for **lifetime closed W/L + PnL** remains the last filled equity line on **DO OR DIE** (**$61.71 / 444 / +$57.18**). Current live bankroll posture remains the **halted reset mark** (**$43.65 / $39.64 cash**).
+
+---
+
+## How the bot is working (profit read)
+
+Closed hit rate on the filled OG#3 book remains strong (**86%**, ~**382–62**). Lifetime closed PnL holds at **+$57.18** and the last filled bankroll mark is **$61.71** — still **+$0.17** vs start equity (`$61.54`), **−$32.04** vs the $93.75 day high.
+
+**Kalshi trading is still idle on-tape.** After the 19:29–19:42 reset/mid-band wake (BNB NO loss −$2.09, equity trough $12.57, halt floor $20), there are still **no new Kalshi settles or equity prints** after **19:40**. This hour the transcript is **byte-identical** to the 08:03 pull: no new sniper Update and **no Kalshi unhalt**. The supervising agent remains **IDLE** (last activity still the ~14:03 sniper status check; ~19.02h idle). ASADO is still open at **~0.955–0.957x** (mcap ~$2,138–$2,141), TP 2x / stop-loss off, **no sells**, **no realized sniper PnL**.
+
+Ops read: historical filled book still profitable on paper (**+$57.18 / 444**), but **live cash is still ~$40**, the mid-band reset ledger is still **halted underwater (−$11.43 / ~13–19)**, and current activity is sniper position monitoring (draft PR **#126**), not Kalshi. Further Kalshi PnL needs an unhalt / redeploy that actually lands new tape.
 
 ---
 
 ## Total win / loss
 
-### Live lifetime book (DO OR DIE — current source of truth)
+### Live lifetime book (DO OR DIE — filled equity source of truth)
 
 | Checkpoint | Closed | Win% | ≈W–L | Closed PnL | Equity / cash |
 |---|---|---|---|---|---|
 | **@19:48:19 Aug 5** | **417** | **86** | **359–58** | **+$49.16** | **$76.46** / $70.72 open1 |
 | **@03:09:09 Aug 6 (halt)** | **420** | **86** | **361–59** | **+$52.83** | **$57.41** flat |
 | **@03:35:30** | **421** | **86** | **362–59** | **+$54.03** | **$58.59** / $49.81 open2 |
-| **@09:39:01 (latest confirmed)** | **424** | **86** | **~364–60 / 365–59** | **+$52.29** | **$56.82** / $46.60 open2 |
-| **@00:05 cron pull (Aug 7)** | **424** (unchanged) | **86** | same | **+$52.29** | **STALE** — no newer mark |
+| **@09:39:01 Aug 6** | **424** | **86** | **~365–59** | **+$52.29** | **$56.82** / $46.60 open2 |
+| **@10:56:42 Aug 7** | **430** | **86** | **~370–60** | **+$48.48** | **$52.99** / $40.28 open3 |
+| **@11:16:02 Aug 7** | **438** | **86** | **~377–61** | **+$55.92** | **$60.42** / $60.42 flat |
+| **@12:30:53 Aug 7 (latest confirmed filled)** | **444** | **86** | **~382–62** | **+$57.18** | **$61.71** / **$61.71** flat |
+| **@16:16 Aug 9 – 08:03 Aug 11** | **444** (unchanged) | **86** | **~382–62** | **+$57.18** | filled mark **$61.71**; live reset **HALTED** |
+| **@09:05 Aug 11 (this pull)** | **444** (unchanged) | **86** | **~382–62** | **+$57.18** | filled mark still **$61.71**; **live reset** still **$43.65 / $39.64 / HALTED** |
 
-Exact latest confirmed line:
+Exact latest confirmed filled equity line:
 ```
-[09:39:01] equity=$56.82 cash=$46.60 open=2 closed=424 win%=86 pnl=+52.2886  unit=10.99  risk=18.0%(edge_kelly) edge_wr=86.2% ev=$+0.125
+[12:30:53] equity=$61.71 cash=$61.71 open=0 closed=444 win%=86 pnl=+57.1847  unit=8.62  risk=13.0%(edge_kelly) edge_wr=83.7% ev=$+0.128
 ```
 
-**Note:** resume logs still show higher `closed=` counts for filled+unfilled history. Equity-line **`closed=424`** is **filled** closes only; use **424 / +$52.29** for reporting.
+Newest live reset-book equity line (unchanged):
+```
+[19:40:33] equity=$43.65 cash=$39.64 open=2 closed=32 win%=41 pnl=-11.4299  unit=7.04  risk=15.0%(cut_neg_edge) edge_wr=43.3% ev=$-0.619  HALTED
+```
+
+**Note:** resume logs can show higher `closed=` counts (e.g. `closed=544`). Equity-line **`closed=444`** is **filled** closes only for the lifetime OG#3 book. The **`closed=32`** lines are a **reset mid-band ledger** — report them separately; do **not** replace 444 with 32.
+
+### Reset mid-band ledger (live — separate from filled 444)
+
+| Checkpoint | Closed | Win% | ≈W–L | Closed PnL | Equity / cash |
+|---|---|---|---|---|---|
+| **@19:29:35** | **31** | **42** | **~13–18** | **−$9.34** | **$43.75** / $41.65 open1 |
+| **@19:36–19:40 (HALTED)** | **32** | **41** | **~13–19** | **−$11.43** | trough **$12.57** → mark **$43.65** / $39.64 open2 |
+| **@09:05 Aug 11 (this pull)** | **32** (unchanged) | **41** | **~13–19** | **−$11.43** | still **$43.65 / $39.64 HALTED** |
+
+Last on-log Aug9 Kalshi settle (from earlier; none new this hour):
+```
+[19:30:21] SETTLE KXBNB15M-26AUG091530-30 NO LOSS pnl=-2.0919 markout/c=-0.570  cash=$41.65 equity=$41.65 risk=15.0% bn=flat:+0.000% dir=up
+```
 
 ### Abandoned sprint VM (Bot $100 target — historical / separate ledger)
 
 | Checkpoint | W–L | Net PnL | Confidence |
 |---|---|---|---|
-| **@00:46 (still frozen)** | **6–8** (43%) | **−$15.80** | high @mark; stale ~23.3h |
+| **@00:46 (still frozen)** | **6–8** (43%) | **−$15.80** | high @mark; stale ~128.3h |
 | Sprint flat path | — | **−$19.25** ($79.86 → $60.61) | high @mark; stale since |
 
-Do **not** add Bot $100 `closed=14` onto DO OR DIE `424`.
+Do **not** add Bot $100 `closed=14` onto DO OR DIE `444` (or onto reset `32`).
 
-### Opens last known @09:39 (settle still missing)
+### Opens last known
 
-| Time | Market | Side | Entry ≈ | Size ≈ | Cash after |
-|---|---|---|---|---|---|
-| 09:39:00 | `KXBNB15M-26AUG060545-45` | YES | ~0.70 | 7.30 | $46.60 |
-| 09:39:00 | `KXXRP15M-26AUG060545-45` | NO | ~0.73 | 7.00 | $46.60 |
-| 09:39:14 | `KXBTC15M-26AUG060545-45` | NO | ~0.87 | 5.87 | **$41.50** |
+**Filled equity @12:30:** flat — cash **$61.71**, opens **0**.  
+**Live @19:40 (still current):** **open=2**, cash **$39.64**, equity **$43.65**, **HALTED** (no new settle after 19:30 BNB loss).
 
-Post-mark state peek @09:39:16: `cash 41.4954 halted False open 3 hw 56.8223`. `0545` window should have settled ~09:45 — outcome **still not** in this pull (no SETTLE lines after 09:39). ~14.4h of silence since.
+### FILL / LIVE FILL / SETTLE in window since prior cron
+
+**Filled-444 book:** still **0** new equity / filled closes after `[12:30:53]`.  
+**Live Aug9 tape this hour (after `[19:40:33]`):**
+- **0×** FILL / LIVE FILL / true SETTLE / new equity
+- Transcript **UNCHANGED** vs 08:03 (no new sniper or Kalshi lines)
+- After `[19:40:33]`: PRE-SETTLE **8** (retries **7**) still present from prior tape; no new equity-line HALTED prints
+
+Mode last visible (reset mid-band @19:31–19:40; still in force):
+- `HALT_FLOOR=20`, `HALT_CASH_TARGET=0`, SPRINT OFF, unit **~7.04**, risk **15.0%** (`cut_neg_edge`), band **[0.45, 0.70)**
+- **`halted=True`** after floor breach; no unhalt this hour
+
+Sniper (last refresh still ~14:03; not Kalshi PnL):
+- ASADO all-in still **held** (`0.00176 SOL` / ~60.9k tokens) @ ~**0.955–0.957x** (mcap **~$2,138–$2,141**)
+- Unrealized ≈ **−$0.01** (prior tool: cost `$0.2640` → mark `$0.2522`; `pnl $-0.0118` with SOL fallback $150)
+- sells **0**; runner still alive; TP 2x / stop-loss off; **no realized sniper PnL**
+- Latest note still: insufficient SOL for new live buys — exits-only
 
 ---
 
@@ -72,68 +121,80 @@ Post-mark state peek @09:39:16: `cash 41.4954 halted False open 3 hw 56.8223`. `
 
 | Window (UTC) | W–L | PnL | Notes |
 |---|---|---|---|
-| **19:48–03:09** | **~+2W / +1L** (417→420) | closed **+$3.67** | settles ~20:00–20:15; quiet until halt |
+| **19:48–03:09** | **~+2W / +1L** (417→420) | closed **+$3.67** | settles ~20:00–20:15; quiet first night |
 | **03:09–03:35** | **+1W / 0L** (420→421) | closed **+$1.20** | XRP `052330` inferred WIN; then 2 new opens |
 | **03:35–09:03** | **0–0 in tape** | **$0 in tape** | six prior crons; runner logs not visible |
 | **09:03–10:03** | **+3 closes** (421→424) | closed **−$1.74**; equity **−$1.77** | catch-up mark @09:39 + new `0545` fills |
-| **10:03–11:06** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **11:06–13:06** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **13:06–14:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **14:05–15:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **15:05–16:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **16:05–17:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **17:05–18:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **18:05–19:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **19:05–20:03** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **20:03–21:04** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **21:04–22:03** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **22:03–23:05** | **0–0** | **$0** | STALE — identical 09:39 mark |
-| **23:05–00:05 (this report)** | **0–0** | **$0** | STALE — still identical 09:39 mark; `0545` settle still missing |
-| **Bot $100 VM 23:05–00:05** | **0–0** | **$0** | still frozen @$60.61 |
+| **10:03 Aug 6 – 10:01 Aug 7** | **0–0** | **$0** | STALE — identical 09:39 mark (PRs #45–#68) |
+| **10:01–11:20** | **+6 closes** (424→430) | closed **−$3.81**; equity **−$3.83** | wake @10:54; 1 on-log SETTLE (BNB −4.87); +5 closes off-log |
+| **11:02–12:05** | **+8 closes** (430→438) | closed **+$7.44**; equity **+$7.43** | `0700` resolved off-log; flat @$60.42 |
+| **12:05–13:05** | **+6 closes** (438→444) | closed **+$1.27**; equity **+$1.29** | off-log closes; OG#3 redeploy @12:30 @$61.71 flat |
+| **13:05 Aug 7 – 16:05 Aug 9** | **0–0** | **$0** | frozen mark @$61.71 / 444 across PRs #69–#122 |
+| **16:05–17:05 Aug 9** | **0–0 closed** | **$0 closed** | transcript **CHANGED**; mid-band live + 1 open fill; filled mark unchanged (PR #123) |
+| **17:05–18:05 Aug 9** | **0–0 closed** | **$0 closed** | transcript **UNCHANGED**; agent IDLE ~1.8h (PR #124) |
+| **18:05–19:05 Aug 9** | **0–0 closed** | **$0 closed** | transcript **UNCHANGED**; agent IDLE ~2.8h (PR #125) |
+| **19:05–20:05 Aug 9** | filled **0–0**; reset **+1 close (~0W–1L)** | filled **$0**; reset closed **≈ −$2.09**; live equity **$43.65 HALTED** | transcript **CHANGED**; wake + halt (PR #127) |
+| **20:05–21:05 Aug 9** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **CHANGED** (sniper only); no new Kalshi tape (PR #128) |
+| **21:05–22:05 Aug 9** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent IDLE ~1.04h (PR #129) |
+| **22:05–23:05 Aug 9** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent IDLE ~2.04h (PR #130) |
+| **23:05 Aug 9 – 00:05 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **CHANGED** (sniper retry; buys failed); agent **RUNNING** (PR #131) |
+| **00:05–01:05 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **CHANGED** (ASADO filled & held; $0 sniper PnL); agent **IDLE** @00:13 (PR #132) |
+| **01:05–02:05 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** ~1.87h (PR #133) |
+| **02:05–03:01 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** ~2.80h (PR #134) |
+| **03:01–04:01 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** ~3.80h (PR #135) |
+| **04:01–05:03 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **CHANGED** (ASADO ~1.03x→~0.96x); agent **IDLE** @04:38 (PR #136) |
+| **05:03–06:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (PR #137) |
+| **06:04–07:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~2.42h) (PR #138) |
+| **07:04–08:02 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~3.39h) (PR #139) |
+| **08:02–09:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~4.43h) (PR #140) |
+| **09:04–10:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~5.43h) (PR #141) |
+| **10:04–11:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~6.42h) (PR #142) |
+| **11:04–12:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~7.43h) (PR #143) |
+| **12:04–13:03 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** since 04:38 (~8.40h) (PR #144) |
+| **13:03–14:03 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **RUNNING** @14:03 (no new tape) (PR #145) |
+| **14:03–15:04 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **CHANGED** (sniper Update @14:03); agent **IDLE**; ASADO ~0.955x (PR #146) |
+| **15:04–16:01 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03); ASADO ~0.955x (PR #147) |
+| **16:01–17:01 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03); ASADO ~0.955x (PR #148) |
+| **17:01–18:05 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03); ASADO ~0.955x (PR #149) |
+| **18:05–19:03 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03); ASADO ~0.955x (PR #150) |
+| **19:03–20:02 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~5.97h); ASADO ~0.955x (PR #151) |
+| **20:02–21:05 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~7.03h); ASADO ~0.955x (PR #152) |
+| **21:05–22:02 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~7.97h); ASADO ~0.955–0.957x (PR #153) |
+| **22:02–23:01 Aug 10** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~8.96h); ASADO ~0.955–0.957x (PR #154) |
+| **23:01 Aug 10 – 00:02 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~9.97h); ASADO ~0.955–0.957x (PR #155) |
+| **00:02–01:01 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~10.96h); ASADO ~0.955–0.957x (PR #156) |
+| **01:01–02:04 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~12.00h); ASADO ~0.955–0.957x (PR #157) |
+| **02:04–03:04 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~13.00h); ASADO ~0.955–0.957x (PR #158) |
+| **03:04–04:03 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~14.00h); ASADO ~0.955–0.957x (PR #159) |
+| **04:03–05:01 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~14.95h); ASADO ~0.955–0.957x (PR #160) |
+| **05:01–06:05 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~16.02h); ASADO ~0.955–0.957x (PR #161) |
+| **06:05–07:05 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~17.03h); ASADO ~0.955–0.957x (PR #162) |
+| **07:05–08:03 Aug 11** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~18.00h); ASADO ~0.955–0.957x (PR #163) |
+| **08:03–09:05 Aug 11 (this report)** | filled **0–0**; reset **0–0** | filled **$0**; reset **$0**; still **HALTED @$43.65** | transcript **UNCHANGED**; agent **IDLE** (LMA still 14:03 ~19.02h); ASADO ~0.955–0.957x |
+| **Bot $100 VM 08:03–09:05** | **0–0** | **$0** | still frozen @$60.61 (~128.3h) |
 
-### Post-19:48 closes (unchanged vs PR #57)
+### 08:03→09:05 path (this report)
 
-| Time | Result | Trade | PnL |
-|---|---|---|---|
-| 20:00 | ~flat | PRE-SETTLE BTC NO 1600 | −$0.00 |
-| 20:00 | W | PRE-SETTLE XRP NO 1600 | +$1.52 |
-| 20:15 | ~flat | SETTLE BNB 1615 | +$0.00 |
-| 20:15 | W | SETTLE XRP 1615 | +$2.14 |
-| ~03:19–03:33 | W | XRP 2330 (inferred) | ≈+$1.20 |
-| **03:35→09:39 (dark)** | **+3 closes** (detail unknown) | net closed | **−$1.74** |
-| | **~+6 closes vs 19:48** | | **≈+$3.13** closed (49.16→52.29) |
+| Step | Equity / cash | Closed / win% / pnl | Δ closed PnL | Notes |
+|---|---|---|---|---|
+| Prior cron ~08:03 | filled $61.71 / $61.71; live $43.65 / $39.64 | filled 444 / 86% / +57.1847; reset 32 / 41% / −11.4299 | — | PR #163; HALTED; ASADO ~0.955–0.957x; agent IDLE after 14:03 wake |
+| This pull ~09:05 | filled still $61.71; live still **$43.65 / $39.64** | filled 444 / +57.18; reset 32 / −11.43 | filled **+$0.00**; reset **+$0.00** | transcript identical; Kalshi quiet; agent **IDLE** |
 
-### 23:05→00:05 path (this report)
-
-- **23:03 prior cron (PR #57):** DO OR DIE **STALE** @09:39 — **$56.82 / 424 / 86% / +$52.29**; cash → **~$41.50** / open **3** after BTC fill; sprint armed
-- **00:04 pull:** re-fetched both transcripts — **no new messages** on DO OR DIE past 09:39:24; Bot $100 still @00:46
-- **No newer live trading agent** besides DO OR DIE (only this automation + extract subagents)
-
-**Net vs prior cron:** **0 closes / $0 closed PnL / $0 equity delta** — tape stuck; `0545` settle still missing (~14.3h past expected settle).
-
-### Risk / ops notes
-
-- **Tape still quiet** after the 09:39 wake — supervising agent IDLE ~14.4h; cannot confirm runner still alive.
-- Closed book still **86%** at **424** / **+$52.29**, but bankroll soft at last mark **$56.82** (**−$36.93** vs $93.75 day).
-- Three `0545` opens (~$15 cash locked @09:39) should have settled ~09:45; absence of SETTLE/equity is the main gap (~14.3h).
-- Cash-save to **$100** still far — last known cash **~$41.50–46.60**; floors off.
-- Resume `closed=` ≠ filled equity-line `closed=424`; always prefer equity-line filled count.
-- Bot $100 target VM still dark since **00:46** — leftover ledger **6–8 / −$15.80**; do not merge.
-- **Ops:** wake DO OR DIE (or pull `state_live.json` / Kalshi balance) — now critical after ~14.4h dark post-wake.
+**Hourly closed W–L (filled 444 book):** **0–0**  
+**Hourly closed PnL (filled 444 book):** **+$0.00**  
+**Hourly equity Δ (filled mark):** **+$0.00**  
+**Hourly live reset book:** **0–0 / $0**; still **HALTED** at **$43.65 / cash $39.64**  
+**Hourly equity Δ (live mark):** **+$0.00**  
+**Hourly sniper:** ASADO still held (~0.955–0.957x); unrealized ≈ −$0.01; **$0 realized**
 
 ---
 
-## How the bot is working
+## Caveats
 
-**What's working (last confirmed @09:39)**
-- Edge stack still printing high filled WR (**86%** on **424** closes) with closed PnL **+$52.29**.
-- SPRINT cash-save armed at **$100** with floors disabled; last state `halted=False`, `SAVE False`, `PAUSED False`.
-- Runner + watchdog + keep_alive were healthy at the 09:39 check (hb 0.7).
-
-**What's not / risks**
-- **No live telemetry for ~14.4h** — DO OR DIE IDLE; Bot $100 target frozen ~23.3h. Hourly **0–0 / $0** is absence-of-data, not confirmed flat trading.
-- Bankroll last mark **$56.82** is **−$36.93** vs day $93.75 and **~$58.50** short of the $100 save after the 3rd fill.
-- Three `0545` opens never showed a SETTLE in transcript (~14.3h overdue).
-- Separate abandoned sprint ledger (**6–8 / −$15.80**) must not be merged into DO OR DIE.
-
-**Bottom line:** Last confirmed book is **424 closes @ 86% / +$52.29**, equity **$56.82**. Since the prior hourly (and for ~14.4h total): **0–0 / $0**. Bot is **not confirmed live** — wake the DO OR DIE agent or refresh Kalshi balance to restore the tape.
+1. Prefer filled equity-line **`closed=444`** for lifetime OG#3; ignore resume **`closed=544`**. Report reset **`closed=32`** separately.
+2. Filled equity mark age **~92.57h** — lifetime closed W/L/PnL are last confirmed filled, not live MTM.
+3. Live cash **~$39.64** / equity **$43.65** diverge hard from stale mark **$61.71**; use live mark for current bankroll.
+4. Equity jump **$12.57 → $43.65** while still HALTED with same closed=32 (prior) likely reflects mark-to-market / open valuation recovery, not a new settle (no SETTLE after 19:30 in pulls).
+5. Mid-band session is still **HALTED** at floor $20; further Kalshi PnL needs an unhalt / redeploy.
+6. Agent remains **IDLE** since LMA **14:03:51Z** (~19.02h) — no new Kalshi PnL; open ASADO ~0.955–0.957x; draft PR **#126**.
+7. Abandoned Bot $100 VM remains a separate ledger — do not merge onto DO OR DIE.
