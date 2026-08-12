@@ -1,0 +1,111 @@
+# Favorite-maker live runner
+
+Paper/live bot for the near-expiry favorite strategy researched in `research/`.
+
+## Quant stack (current)
+
+1. **Instrument** — every signal/fill/settle logs mid, spread, secs left, Binance lean, risk %
+2. **Fast lead** — Binance trade WebSocket + vol-adjusted threshold + Coinbase confirm
+3. **Mispricing gates** — skip too-rich entries / wide spreads unless Binance agrees
+4. **Edge sizing (#5)** — fractional Kelly from live WR/EV; cut when edge decays; halt-buffer cap
+5. **Markout report** — `python3 bot/markout_report.py`
+
+## $20 test sizing (edge-aware)
+
+```
+bankroll≈$65+ (overnight #3 + risk upgrades)
+risk/trade ≈ 10–25% (EDGE_SIZING), halt floor $50, profit halt OFF
+soft corr cap ≤2; staged size >10m×0.5 / >5m×0.75; soft Binance lean required
+loss cooldown: 2 losses/bucket → risk×0.5 for 15m
+stop-loss OFF — spike TP ≥ 0.995; binance lead ON
+```
+
+`EDGE_SIZING=1` (default) sets risk from recent settles (quarter-Kelly, shrunk to prior),
+floored at `RISK_FRAC_MIN` and capped at `RISK_FRAC_MAX`. Negative live EV → min size.
+
+## Run paper (no API keys)
+
+```bash
+pip3 install websocket-client   # for Binance trade stream
+START_EQUITY=20 MODE=paper python3 bot/runner.py
+```
+
+## Run live
+
+```bash
+export KALSHI_API_KEY_ID='...'
+export KALSHI_PRIVATE_KEY_PATH=/path/to/kalshi.key
+START_EQUITY=20 MODE=live \
+  EDGE_SIZING=1 RISK_FRACTION=0.20 \
+  BINANCE_LEAD=1 BINANCE_WS=1 COINBASE_CONFIRM=1 \
+  python3 -u bot/runner.py
+```
+
+## Config env vars
+
+| var | default | meaning |
+|---|---|---|
+| `START_EQUITY` | `20` | starting bankroll for sizing / halt |
+| `MODE` | `paper` | `paper` or `live` |
+| `SERIES` | `KXBNB15M,KXSOL15M,KXXRP15M` | core markets |
+| `WINDOW_SEC` | `840` | almost full 15m candle |
+| `MIN_SECS_LEFT` | `15` | no new entries inside final 15s |
+| `CONFIRM_POLLS` | `1` | polls required in-band (1 = faster entries) |
+| `PRICE_LO` / `PRICE_HI` | `0.70` / `0.999` | any clear favorite (max frequency) |
+| `SKIP_ENTRY_RICH` | `0.97` | skip rich favorites at/above this entry |
+| `SOFT_BN_AGREE_MULT` | `1.50` | soft-entry size when fast Binance agrees |
+| `SOFT_BN_FLAT_MULT` | `0.50` | soft-entry size when fast Binance is flat |
+| `MAX_SPREAD` | `0.20` | skip if yes ask−bid wider than this |
+| `STOP_LOSS_PCT` | `0` | stop-loss disabled |
+| `TAKE_PROFIT_ABS` | `0.98` | spike exit if mark ≥ this (earlier capture) |
+| `HALT_FLOOR` | `70.0` | stop the run if equity ≤ this ($) |
+| `EDGE_KELLY_FRAC` | `0.33` | fraction of full Kelly to use |
+| `HALT_PROFIT` | `0` | pause new entries after +$N profit from start (0=off) |
+| `SOFT_ENTRY_MAX` | `0.85` | entries below this get a size cut when mult&lt;1 |
+| `SOFT_ENTRY_SIZE_MULT` | `1.0` | soft-favorite multiplier (1.0 = #3 full size) |
+| `SOFT_ENTRY_EARLY_SECS` | `300` | extra soft cut if more than this many secs left |
+| `SOFT_ENTRY_EARLY_MULT` | `1.0` | extra soft+early multiplier (1.0 = off) |
+| `RISK_FRACTION` | `0.20` | base risk when blending / EDGE_SIZING off |
+| `EDGE_SIZING` | `1` | dynamic risk from live edge |
+| `RISK_FRAC_MIN` / `MAX` | `0.13` / `0.25` | hard band for edge sizer |
+| `EDGE_LOOKBACK` | `30` | recent filled closes for WR/EV |
+| `EDGE_MIN_SAMPLES` | `8` | below this, blend toward base risk |
+| `EDGE_KELLY_FRAC` | `0.25` | fraction of full Kelly to use |
+| `HALT_LOSS_BUFFER` | `1` | size so ~N full losses stay above halt |
+| `BINANCE_LEAD` | `1` | enable lead intel/filter |
+| `BINANCE_LEAD_MODE` | `filter` | `filter` / `strict` / `off` |
+| `BINANCE_WS` | `1` | use Binance trade WebSocket |
+| `BINANCE_LEAD_WINDOW_SEC` | `15` | lookback for spot return (rich / default) |
+| `BINANCE_LEAD_PCT` | `0.0008` | base lean threshold (15s) |
+| `BINANCE_FAST_WINDOW_SEC` | `4` | short lookback for soft-entry gates |
+| `BINANCE_FAST_PCT` | `0.0004` | aggressive lean threshold (4s) |
+| `BINANCE_LEAD_VOL_MULT` | `1.25` | vol-adjust multiplier |
+| `COINBASE_CONFIRM` | `1` | tag leans with Coinbase same-way check |
+
+### Edge sizing (#5)
+
+```
+risk ≈ clamp( quarter_Kelly(live WR, avg win/loss), MIN, MAX )
+       then min(risk, room_to_halt / (HALT_LOSS_BUFFER * equity))
+```
+
+- Live WR is shrunk toward a 93% prior until enough samples
+- `ev < 0` or `WR < avg entry` → cut to `RISK_FRAC_MIN`
+- Bankroll up + stable positive EV → risk can rise toward MAX
+
+### Binance early intel
+
+- WebSocket trades on BNB/SOL/XRP (REST fallback)
+- `binance INTEL` when spot leaned but Kalshi mid still stale
+- Filter/cancel when Binance strongly opposes a favorite
+- Coinbase confirm tagged on leans (`cb✓` / `cb×` in status)
+
+```bash
+python3 bot/binance_lead.py
+python3 bot/markout_report.py bot/trades_live.jsonl
+```
+
+### Stop-loss / take-profit
+
+- **Stop:** off — settle path was +EV; stops caused live losses
+- **Take-profit:** spike at **mark ≥ 0.98**; else hold to settlement

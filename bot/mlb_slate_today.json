@@ -1,0 +1,183 @@
+{
+  "date": "2026-08-07",
+  "notes": "Probable pitchers from MLB.com; weather from public park forecasts; records as of slate day. Update before lock.",
+  "games": [
+    {
+      "event_key": "NYMPIT",
+      "away": "NYM", "home": "PIT",
+      "park": "PNC Park", "roof": "open",
+      "temp_f": 82, "wind_mph": 8, "precip_pct": 15,
+      "park_run_factor": 0.98,
+      "away_record": [50, 66], "home_record": [57, 60],
+      "away_sp": {"name": "Thornton", "hand": "L", "era": 2.88, "whip": 1.15, "so": 24, "ip": 40.0, "w": 2, "l": 2},
+      "home_sp": {"name": "Mlodzinski", "hand": "R", "era": 3.15, "whip": 1.18, "so": 76, "ip": 85.0, "w": 6, "l": 3}
+    },
+    {
+      "event_key": "TORPHI",
+      "away": "TOR", "home": "PHI",
+      "park": "Citizens Bank Park", "roof": "open",
+      "temp_f": 89, "wind_mph": 7, "precip_pct": 10,
+      "park_run_factor": 1.08,
+      "away_record": [54, 62], "home_record": [62, 54],
+      "away_sp": {"name": "Soriano", "hand": "R", "era": 3.29, "whip": 1.20, "so": 127, "ip": 120.0, "w": 9, "l": 6},
+      "home_sp": {"name": "Wheeler", "hand": "R", "era": 2.49, "whip": 0.98, "so": 126, "ip": 118.0, "w": 10, "l": 2}
+    },
+    {
+      "event_key": "CINWSH",
+      "away": "CIN", "home": "WSH",
+      "park": "Nationals Park", "roof": "open",
+      "temp_f": 88, "wind_mph": 6, "precip_pct": 20,
+      "park_run_factor": 1.02,
+      "away_record": [56, 58], "home_record": [56, 61],
+      "away_sp": {"name": "TBD", "hand": "R", "era": 4.40, "whip": 1.35, "so": 40, "ip": 50.0, "w": 0, "l": 0},
+      "home_sp": {"name": "Cavalli", "hand": "R", "era": 3.52, "whip": 1.22, "so": 133, "ip": 110.0, "w": 8, "l": 5}
+    },
+    {
+      "event_key": "ATLNYY",
+      "away": "ATL", "home": "NYY",
+      "park": "Yankee Stadium", "roof": "open",
+      "temp_f": 87, "wind_mph": 8, "precip_pct": 5,
+      "park_run_factor": 1.10,
+      "away_record": [70, 45], "home_record": [64, 51],
+      "injury_notes": "NYY: Judge, Stanton, Bellinger IL — offense downgrade",
+      "away_sp": {"name": "Mahle", "hand": "R", "era": 5.13, "whip": 1.39, "so": 89, "ip": 94.2, "w": 3, "l": 9},
+      "home_sp": {"name": "Fried", "hand": "L", "era": 3.12, "whip": 0.99, "so": 68, "ip": 75.0, "w": 4, "l": 3}
+    },
+    {
+      "event_key": "ATHBOS",
+      "away": "ATH", "home": "BOS",
+      "park": "Fenway Park", "roof": "open",
+      "temp_f": 88, "wind_mph": 6, "precip_pct": 5,
+      "park_run_factor": 1.06,
+      "away_record": [45, 70], "home_record": [63, 51],
+      "away_sp": {"name": "Perkins", "hand": "R", "era": 6.72, "whip": 1.55, "so": 89, "ip": 95.0, "w": 2, "l": 7},
+      "home_sp": {"name": "Tolle", "hand": "L", "era": 3.30, "whip": 1.18, "so": 110, "ip": 100.0, "w": 6, "l": 6}
+    },
+    {
+      "event_key": "LAAMIA",
+      "away": "LAA", "home": "MIA",
+      "park": "loanDepot park", "roof": "retractable",
+      "temp_f": 86, "wind_mph": 5, "precip_pct": 30,
+      "park_run_factor": 0.96,
+      "away_record": [44, 71], "home_record": [58, 58],
+      "away_sp": {"name": "Klassen", "hand": "R", "era": 11.57, "whip": 2.10, "so": 6, "ip": 10.0, "w": 0, "l": 1},
+      "home_sp": {"name": "Phillips", "hand": "R", "era": 3.53, "whip": 1.25, "so": 66, "ip": 80.0, "w": 3, "l": 5}
+    },
+    {
+      "event_key": "CLECWS",
+      "away": "CLE", "home": "CWS",
+      "park": "Rate Field", "roof": "open",
+      "temp_f": 84, "wind_mph": 9, "precip_pct": 15,
+      "park_run_factor": 1.04,
+      "away_record": [57, 59], "home_record": [59, 55],
+      "away_sp": {"name": "Messick", "hand": "L", "era": 2.57, "whip": 1.05, "so": 128, "ip": 115.0, "w": 8, "l": 6},
+      "home_sp": {"name": "Schultz", "hand": "L", "era": 5.82, "whip": 1.48, "so": 58, "ip": 85.0, "w": 3, "l": 8}
+    },
+    {
+      "event_key": "MINMIL",
+      "away": "MIN", "home": "MIL",
+      "park": "American Family Field", "roof": "retractable",
+      "temp_f": 83, "wind_mph": 9, "precip_pct": 18,
+      "park_run_factor": 1.01,
+      "away_record": [57, 59], "home_record": [72, 43],
+      "away_sp": {"name": "Matthews", "hand": "R", "era": 5.22, "whip": 1.31, "so": 69, "ip": 81.0, "w": 4, "l": 8},
+      "home_sp": {"name": "Drohan", "hand": "L", "era": 3.48, "whip": 1.17, "so": 89, "ip": 88.0, "w": 6, "l": 4}
+    },
+    {
+      "event_key": "CHCKC",
+      "away": "CHC", "home": "KC",
+      "park": "Kauffman Stadium", "roof": "open",
+      "temp_f": 86, "wind_mph": 5, "precip_pct": 31,
+      "park_run_factor": 0.97,
+      "away_record": [67, 49], "home_record": [48, 68],
+      "away_sp": {"name": "TBD", "hand": "R", "era": 4.20, "whip": 1.30, "so": 50, "ip": 60.0, "w": 0, "l": 0},
+      "home_sp": {"name": "Lynch", "hand": "L", "era": 1.96, "whip": 1.05, "so": 35, "ip": 45.0, "w": 4, "l": 2}
+    },
+    {
+      "event_key": "BALTEX",
+      "away": "BAL", "home": "TEX",
+      "park": "Globe Life Field", "roof": "retractable",
+      "temp_f": 78, "wind_mph": 0, "precip_pct": 0,
+      "park_run_factor": 1.00,
+      "away_record": [56, 59], "home_record": [57, 58],
+      "away_sp": {"name": "Baz", "hand": "R", "era": 3.86, "whip": 1.22, "so": 111, "ip": 105.0, "w": 4, "l": 10},
+      "home_sp": {"name": "Eovaldi", "hand": "R", "era": 4.31, "whip": 1.25, "so": 135, "ip": 125.0, "w": 10, "l": 9}
+    },
+    {
+      "event_key": "COLSTL",
+      "away": "COL", "home": "STL",
+      "park": "Busch Stadium", "roof": "open",
+      "temp_f": 85, "wind_mph": 7, "precip_pct": 20,
+      "park_run_factor": 0.95,
+      "away_record": [45, 70], "home_record": [57, 58],
+      "away_sp": {"name": "Feltner", "hand": "R", "era": 5.75, "whip": 1.45, "so": 57, "ip": 80.0, "w": 4, "l": 5},
+      "home_sp": {"name": "Leahy", "hand": "R", "era": 3.44, "whip": 1.20, "so": 91, "ip": 95.0, "w": 7, "l": 4}
+    },
+    {
+      "event_key": "HOUSD",
+      "away": "HOU", "home": "SD",
+      "park": "Petco Park", "roof": "open",
+      "temp_f": 75, "wind_mph": 8, "precip_pct": 5,
+      "park_run_factor": 0.90,
+      "away_record": [59, 57], "home_record": [60, 56],
+      "away_sp": {"name": "Blanco", "hand": "R", "era": 7.36, "whip": 1.60, "so": 16, "ip": 20.0, "w": 0, "l": 1},
+      "home_sp": {"name": "Ray", "hand": "L", "era": 3.08, "whip": 1.10, "so": 107, "ip": 110.0, "w": 10, "l": 6}
+    },
+    {
+      "event_key": "LADAZ",
+      "away": "LAD", "home": "AZ",
+      "park": "Chase Field", "roof": "retractable",
+      "temp_f": 80, "wind_mph": 0, "precip_pct": 0,
+      "park_run_factor": 1.05,
+      "away_record": [69, 46], "home_record": [61, 55],
+      "away_sp": {"name": "Sasaki", "hand": "R", "era": 4.64, "whip": 1.30, "so": 101, "ip": 100.0, "w": 5, "l": 5},
+      "home_sp": {"name": "Kelly", "hand": "R", "era": 5.04, "whip": 1.35, "so": 76, "ip": 100.0, "w": 8, "l": 9}
+    },
+    {
+      "event_key": "TBSEA",
+      "away": "TB", "home": "SEA",
+      "park": "T-Mobile Park", "roof": "retractable",
+      "temp_f": 72, "wind_mph": 5, "precip_pct": 10,
+      "park_run_factor": 0.92,
+      "away_record": [68, 46], "home_record": [56, 60],
+      "away_sp": {"name": "Rasmussen", "hand": "R", "era": 2.91, "whip": 1.08, "so": 122, "ip": 115.0, "w": 10, "l": 5},
+      "home_sp": {"name": "Gilbert", "hand": "R", "era": 3.46, "whip": 1.12, "so": 139, "ip": 120.0, "w": 8, "l": 6}
+    },
+    {
+      "event_key": "DETSF",
+      "away": "DET", "home": "SF",
+      "park": "Oracle Park", "roof": "open",
+      "temp_f": 68, "wind_mph": 12, "precip_pct": 5,
+      "park_run_factor": 0.88,
+      "away_record": [56, 59], "home_record": [48, 67],
+      "away_sp": {"name": "Montero", "hand": "R", "era": 3.17, "whip": 1.15, "so": 81, "ip": 90.0, "w": 8, "l": 6},
+      "home_sp": {"name": "TBD", "hand": "R", "era": 4.50, "whip": 1.35, "so": 40, "ip": 50.0, "w": 0, "l": 0}
+    }
+  ],
+  "prop_legs": [
+    {
+      "ticker_hint": "KXMLBHIT-26AUG071840TORPHI-PHIBHARPER3-1",
+      "label": "Harper 1+ hits",
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "kind": "hit",
+      "prior": 0.68
+    },
+    {
+      "ticker_hint": "KXMLBHIT-26AUG071840TORPHI-PHIKSCHWARBER12-1",
+      "label": "Schwarber 1+ hits",
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "kind": "hit",
+      "prior": 0.62
+    },
+    {
+      "ticker_hint": "KXMLBHR-26AUG071840TORPHI-PHIKSCHWARBER12-1",
+      "label": "Schwarber 1+ HR",
+      "team": "PHI",
+      "event_key": "TORPHI",
+      "kind": "hr",
+      "prior": 0.22
+    }
+  ]
+}
