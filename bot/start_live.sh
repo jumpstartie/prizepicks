@@ -60,14 +60,14 @@ export EDGE_PNL_CLIP=20
 export EDGE_PRIOR_STRENGTH=16
 export EDGE_PRIOR_WR=0.60
 # Catastrophe-only floor — keep running otherwise.
-# No trail / cash-save / per-trade stop (those killed uptime).
+# Cash-save at $60: freeze + SAVE_BANKROLL once flat cash hits target.
 export HALT_DISABLED=0
 export HALT_FLOOR=20
 export HALT_TRAIL_FRAC=0
 export HALT_EQUITY_FRAC=0
 export HALT_LOSS_BUFFER=1
 export HALT_PROFIT=0
-export HALT_CASH_TARGET=0
+export HALT_CASH_TARGET=60
 export HALT_CONFIRM_POLLS=2
 export STOP_LOSS_PCT=0
 export LOGNORMAL_GATE=0
