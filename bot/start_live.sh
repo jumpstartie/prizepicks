@@ -8,6 +8,8 @@
 set -euo pipefail
 cd /workspace
 set -a
+# Materialize cloud-injected KALSHI_* into gitignored secrets/, then source.
+python3 -u bot/materialize_secrets.py || true
 # Prefer secrets/env.sh; fall back to already-exported KALSHI_* env vars.
 if [[ -f secrets/env.sh ]]; then
   # shellcheck disable=SC1091
@@ -17,7 +19,7 @@ elif [[ -n "${KALSHI_API_KEY_ID:-}" && ( -n "${KALSHI_PRIVATE_KEY:-}" || -n "${K
 else
   echo "FATAL: missing Kalshi credentials." >&2
   echo "Create secrets/env.sh with KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY_PATH" >&2
-  echo "  (or export those vars in the Cloud Agent environment), then re-run." >&2
+  echo "  (or add Cloud secrets KALSHI_API_KEY_ID + KALSHI_PRIVATE_KEY), then re-run." >&2
   exit 1
 fi
 set +a
