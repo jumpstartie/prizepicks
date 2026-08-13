@@ -88,7 +88,7 @@ Newest micro-restart equity lines (separate dust ledger — do **not** merge):
 |---|---|---|---|---|---|
 | **@19:29:35** | **31** | **42** | **~13–18** | **−$9.34** | **$43.75** / $41.65 open1 |
 | **@19:36–19:40 (HALTED)** | **32** | **41** | **~13–19** | **−$11.43** | trough **$12.57** → mark **$43.65** / $39.64 open2 |
-| **@05:11 Aug 13** | **32** (unchanged) | **41** | **~13–19** | **rest$11.43** | still **$43.65 / $39.64 HALTED** |
+| **@05:11 Aug 13** | **32** (unchanged) | **41** | **~13–19** | **−$11.43** | still **$43.65 / $39.64 HALTED** |
 | **@06:09 Aug 13 (this pull)** | **32** (unchanged) | **41** | **~13–19** | **−$11.43** | still **$43.65 / $39.64 HALTED** |
 
 Last on-log Aug9 Kalshi settle (from earlier; none new this hour on the preferred books):
